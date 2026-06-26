@@ -13,36 +13,26 @@ export function WorkspaceBanner({
   usingWorkspaceOverride,
   indexed,
 }: WorkspaceBannerProps) {
+  if (workspaceOpen && indexed > 0) {
+    return null;
+  }
+
   if (!workspaceOpen) {
     return (
       <div className="workspace-banner workspace-banner--warn" role="alert">
-        <strong>No Thunder workspace configured.</strong> Open a folder via{' '}
-        <strong>File → Open Folder</strong>, or set a path in <strong>Settings → Workspace</strong>.
+        <strong>No workspace.</strong> Open a folder or set a path in Settings.
         {vscodeWorkspaceFolders.length === 0 && (
-          <span>
-            {' '}
-            F5 debug: use launch config <em>Run Extension (parent monorepo)</em> to auto-open a
-            folder.
-          </span>
+          <span> F5: use <em>Run Extension (parent monorepo)</em> launch config.</span>
         )}
       </div>
     );
   }
 
-  if (indexed === 0) {
-    return (
-      <div className="workspace-banner workspace-banner--info" role="status">
-        <strong>Workspace:</strong> <code title={workspacePath}>{shortPath(workspacePath)}</code>
-        {usingWorkspaceOverride && <span> (manual override)</span>} — not indexed yet. Settings →
-        Index Workspace.
-      </div>
-    );
-  }
-
   return (
-    <div className="workspace-banner workspace-banner--ok" role="status">
-      <strong>Workspace:</strong> <code title={workspacePath}>{shortPath(workspacePath)}</code>
-      {usingWorkspaceOverride && <span> (override)</span>} · {indexed} files indexed
+    <div className="workspace-banner workspace-banner--info" role="status">
+      <code title={workspacePath}>{shortPath(workspacePath)}</code>
+      {usingWorkspaceOverride && <span> (override)</span>}
+      {' '}— not indexed. Use Settings → Index.
     </div>
   );
 }

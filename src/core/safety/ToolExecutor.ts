@@ -31,8 +31,8 @@ export class ToolExecutor {
     if (toolName === 'apply_patch' && !isPatchAllowed(mode)) {
       return { success: false, output: '', error: 'Patch apply blocked in Plan/Review mode' };
     }
-    if (toolName === 'run_command' && !isShellAllowed(mode)) {
-      return { success: false, output: '', error: 'Shell blocked in Plan/Review mode' };
+    if (toolName === 'run_command' && !isShellAllowed(mode, typeof input.command === 'string' ? input.command : undefined)) {
+      return { success: false, output: '', error: 'Shell blocked in Plan/Review mode (read-only commands like depcheck/grep are allowed)' };
     }
 
     const sessionId = this.getSessionId();

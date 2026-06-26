@@ -1,17 +1,15 @@
 const FILE_MENTION_PATTERN =
   /\b[\w./-]+\.(tsx?|jsx?|vue|svelte|py|go|rs|java|kt|swift|md|json|css|scss|html|yaml|yml|toml)\b/gi;
 
-const COMPONENT_PATTERN = /\b[A-Z][a-zA-Z0-9]{2,}\b/g;
-
 export function extractFileMentions(text: string): string[] {
   const matches = text.match(FILE_MENTION_PATTERN) ?? [];
   return [...new Set(matches.map((m) => m.replace(/^\.\//, '')))];
 }
 
 export function extractComponentNames(text: string): string[] {
-  const mentions = extractFileMentions(text).map((m) => m.replace(/\.[^.]+$/, ''));
-  const components = text.match(COMPONENT_PATTERN) ?? [];
-  return [...new Set([...mentions, ...components])];
+  // Only derive component/file stems from explicit file paths — not arbitrary PascalCase words
+  // in the user message (e.g. "Identify" must not trigger indexed file search).
+  return [...new Set(extractFileMentions(text).map((m) => m.replace(/\.[^.]+$/, '')))];
 }
 
 /** Split CamelCase / PascalCase into searchable parts (e.g. DinInKanban → kanban). */

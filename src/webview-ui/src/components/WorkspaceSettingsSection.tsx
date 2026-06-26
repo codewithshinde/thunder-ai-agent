@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import type { WorkspaceNoticeView } from '../../../vscode/webview/messages';
+import { SettingNote } from './SettingNote';
 
 interface WorkspaceSettingsSectionProps {
   workspaceOpen: boolean;
@@ -8,6 +10,8 @@ interface WorkspaceSettingsSectionProps {
   usingWorkspaceOverride: boolean;
   indexDbPath: string;
   indexed: number;
+  indexingRunning: boolean;
+  workspaceNotice: WorkspaceNoticeView | null;
   onPickFolder: () => void;
   onSetOverride: (path: string) => void;
   onClearOverride: () => void;
@@ -22,6 +26,8 @@ export function WorkspaceSettingsSection({
   usingWorkspaceOverride,
   indexDbPath,
   indexed,
+  indexingRunning,
+  workspaceNotice,
   onPickFolder,
   onSetOverride,
   onClearOverride,
@@ -37,31 +43,54 @@ export function WorkspaceSettingsSection({
     <section className="settings-section">
       <h3>Workspace</h3>
 
-      <p className="settings-row">
-        Effective path:{' '}
-        <strong>{workspaceOpen ? workspacePath : 'Not set'}</strong>
-      </p>
-      <p className="settings-row">
-        Source:{' '}
-        <strong>{usingWorkspaceOverride ? 'Manual override' : 'VS Code open folder'}</strong>
-      </p>
-      <p className="settings-row">
-        Indexed files: <strong>{indexed}</strong>
-      </p>
+      <SettingNote title="Why this matters">
+        Thunder needs a <strong>project root</strong> to index files, run tools, and build context.
+        When you debug with F5, the Extension Host may open the <em>monorepo</em> folder — not your app.
+        Use <strong>Browse</strong> or paste the absolute path to the project you want the agent to work on
+        (e.g. your Kitchen KOT app), then <strong>Save &amp; apply</strong> and <strong>Index</strong>.
+      </SettingNote>
+
+      {workspaceNotice && (
+        <p
+          className={`workspace-notice workspace-notice--${workspaceNotice.kind}`}
+          role="status"
+        >
+          {workspaceNotice.message}
+        </p>
+      )}
+
+      <div className="settings-status-grid">
+        <div className="settings-status-item">
+          <span className="settings-label">Effective path</span>
+          <strong className="settings-path" title={workspacePath}>
+            {workspaceOpen ? workspacePath : 'Not set'}
+          </strong>
+        </div>
+        <div className="settings-status-item">
+          <span className="settings-label">Source</span>
+          <strong>{usingWorkspaceOverride ? 'Saved override' : 'VS Code open folder'}</strong>
+        </div>
+        <div className="settings-status-item">
+          <span className="settings-label">Indexed files</span>
+          <strong>{indexed}{indexingRunning ? ' (running…)' : ''}</strong>
+        </div>
+      </div>
+
       {indexDbPath && (
         <p className="settings-hint settings-path" title={indexDbPath}>
-          Index DB: {indexDbPath}
+          Index database: {indexDbPath}
         </p>
       )}
 
       <div className="settings-divider" />
 
-      <p className="settings-label">VS Code open folders</p>
+      <p className="settings-label">VS Code open folders (this window)</p>
       {vscodeWorkspaceFolders.length === 0 ? (
-        <p className="settings-placeholder">
-          No folder open in this VS Code window. When debugging with F5, pick a launch config that
-          opens a folder (see Run Extension configs).
-        </p>
+        <SettingNote variant="warn" title="F5 / Extension Development Host">
+          No folder is open in this window. That is normal when debugging Thunder itself.
+          Set a <strong>workspace path override</strong> below — it is saved even without an open folder.
+          Launch config tip: use <em>Run Extension (parent monorepo)</em> or open your target project folder.
+        </SettingNote>
       ) : (
         <ul className="settings-folder-list">
           {vscodeWorkspaceFolders.map((folder) => (
@@ -83,8 +112,8 @@ export function WorkspaceSettingsSection({
           aria-label="Workspace path override"
         />
         <span className="settings-hint">
-          Leave empty to use the VS Code open folder. Set an absolute path to index a different
-          project (enterprise-style pinned workspace).
+          Absolute path to the repo Thunder should use. Persisted locally (works without an open VS Code folder).
+          Leave empty to use the folder open in VS Code.
         </span>
       </label>
 
@@ -98,7 +127,7 @@ export function WorkspaceSettingsSection({
           onClick={() => onSetOverride(overrideInput)}
           disabled={!overrideInput.trim() && !usingWorkspaceOverride}
         >
-          Apply path
+          Save &amp; apply
         </button>
         {usingWorkspaceOverride && (
           <button type="button" className="btn btn--secondary btn--small" onClick={onClearOverride}>
@@ -109,8 +138,18 @@ export function WorkspaceSettingsSection({
 
       <div className="settings-divider" />
 
-      <button type="button" className="btn btn--secondary" onClick={onIndex}>
-        Index Workspace
+      <SettingNote title="Indexing">
+        Indexing scans your project into a local SQLite database for fast search, repo map, and context.
+        Run this after changing the workspace path. Large projects may take a minute.
+      </SettingNote>
+
+      <button
+        type="button"
+        className="btn btn--secondary"
+        onClick={onIndex}
+        disabled={!workspaceOpen || indexingRunning}
+      >
+        {indexingRunning ? 'Indexing…' : 'Index workspace'}
       </button>
     </section>
   );

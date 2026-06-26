@@ -28,6 +28,7 @@ export function readThunderConfigFromSettings(): ThunderConfig {
       respectGitignore: config.get<boolean>('indexing.respectGitignore'),
       respectThunderignore: config.get<boolean>('indexing.respectThunderignore'),
       maxConcurrency: config.get<number>('indexing.maxConcurrency'),
+      vectorsEnabled: config.get<boolean>('indexing.vectorsEnabled'),
     },
     safety: {
       requireApprovalForWrites: config.get<boolean>('safety.requireApprovalForWrites'),

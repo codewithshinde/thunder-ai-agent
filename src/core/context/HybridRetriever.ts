@@ -1,5 +1,8 @@
 import type { ContextItem, ContextQuery } from './types';
 import type { ContextSource } from './types';
+import { createLogger } from '../telemetry/Logger';
+
+const log = createLogger('HybridRetriever');
 
 export class HybridRetriever {
   constructor(private readonly sources: ContextSource[]) {}
@@ -8,8 +11,15 @@ export class HybridRetriever {
     const allItems: ContextItem[] = [];
 
     for (const source of this.sources) {
-      const items = await source.retrieve(query);
-      allItems.push(...items);
+      try {
+        const items = await source.retrieve(query);
+        allItems.push(...items);
+      } catch (error) {
+        log.warn('Context source failed', {
+          source: source.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     return deduplicateItems(allItems)

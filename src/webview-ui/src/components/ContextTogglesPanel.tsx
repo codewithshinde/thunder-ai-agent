@@ -11,6 +11,7 @@ const TOGGLE_LABELS: Record<keyof ContextToggles, string> = {
   gitDiff: 'Git diff',
   diagnostics: 'Diagnostics',
   memory: 'Memory',
+  vectors: 'Semantic vectors',
 };
 
 export function ContextTogglesPanel({ toggles, onToggle }: ContextTogglesPanelProps) {

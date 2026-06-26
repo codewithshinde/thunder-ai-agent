@@ -50,6 +50,15 @@ export function useVsCodeMessaging() {
         case 'setPlan':
           dispatch({ type: 'SET_PLAN', payload: message.payload });
           break;
+        case 'setAgentActivity':
+          dispatch({ type: 'SET_AGENT_ACTIVITY', payload: message.payload });
+          break;
+        case 'setAgentLiveStatus':
+          dispatch({ type: 'SET_AGENT_LIVE_STATUS', payload: message.payload });
+          break;
+        case 'setSubagents':
+          dispatch({ type: 'SET_SUBAGENTS', payload: message.payload });
+          break;
       }
     };
 

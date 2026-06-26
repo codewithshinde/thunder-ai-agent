@@ -11,12 +11,12 @@ describe('Webview message protocol', () => {
     expect(state.indexing.running).toBe(false);
   });
 
-  it('has default context toggles all enabled', () => {
+  it('has default context toggles with diagnostics off by default', () => {
     const toggles = defaultContextToggles();
     expect(toggles.repoMap).toBe(true);
     expect(toggles.fts).toBe(true);
     expect(toggles.gitDiff).toBe(true);
-    expect(toggles.diagnostics).toBe(true);
+    expect(toggles.diagnostics).toBe(false);
     expect(toggles.memory).toBe(true);
   });
 });
@@ -29,9 +29,10 @@ describe('ToolExecutor', () => {
     const { ApprovalQueue } = await import('../src/core/safety/ApprovalQueue');
     const { defaultThunderConfig } = await import('../src/core/config/schema');
     const { createWriteFileTool } = await import('../src/core/tools/builtinTools');
+    const { IgnoreService } = await import('../src/core/indexing/IgnoreService');
 
     const runtime = new ToolRuntime();
-    runtime.register(createWriteFileTool());
+    runtime.register(createWriteFileTool(process.cwd(), new IgnoreService()));
 
     const executor = new ToolExecutor(
       runtime,

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { existsSync } from 'fs';
-import { isAbsolute, resolve, join } from 'path';
+import { existsSync, statSync } from 'fs';
+import { join } from 'path';
 import { ThunderSession } from './ThunderSession';
 import { ConfigService } from './config/ConfigService';
 import { LlmProviderRegistry } from './llm/LlmProviderRegistry';
@@ -22,15 +22,30 @@ import { RepoMapService } from './context/RepoMapService';
 import { ChatOrchestrator } from './ChatOrchestrator';
 import { ToolRuntime } from './tools/ToolRuntime';
 import {
-  createReadFileTool, createListFilesTool, createSearchTool,
+  createReadFileTool, createReadFilesTool, createListFilesTool, createSearchTool,
+  createSearchBatchTool, createSpawnResearchAgentTool,
   createRepoMapTool, createRetrieveContextTool, createGitDiffTool,
   createDiagnosticsTool, createWriteFileTool, createApplyPatchTool, createRunCommandTool,
+  createMemorySearchTool, createMemoryWriteTool,
+  setSubagentTracker,
 } from './tools/builtinTools';
 import { ToolPolicyEngine } from './safety/ToolPolicyEngine';
+import { applyAutonomyPreset } from './safety/autonomyPresets';
 import { ApprovalQueue } from './safety/ApprovalQueue';
 import { ToolExecutor } from './safety/ToolExecutor';
 import { CheckpointService } from './apply/CheckpointService';
 import { MemoryService } from './memory/MemoryService';
+import { SessionService } from './session/SessionService';
+import { PlanPersistence } from './planning/PlanPersistence';
+import { MemoryExtractor } from './agent/MemoryExtractor';
+import { SubagentTracker } from './agent/SubagentTracker';
+import { PassiveMemoryInjector } from './memory/PassiveMemoryInjector';
+import { MemoryHookService } from './memory/MemoryHookService';
+import { PostEditValidator } from './apply/PostEditValidator';
+import { VectorContextSource } from './context/sources/VectorContextSource';
+import { SqliteVectorIndex, VectorIndexService } from './indexing/VectorIndex';
+import { HashEmbeddingProvider } from './indexing/EmbeddingProvider';
+import { showWriteDiffPreview, showPatchDiffPreview } from '../vscode/diffPreview';
 import { testOpenAiCompatibleConnection } from './llm/testConnection';
 import { createLogger } from './telemetry/Logger';
 import { normalizeError } from './telemetry/errors';
@@ -46,6 +61,7 @@ import {
   defaultContextToggles,
 } from '../vscode/webview/messages';
 import { resolveDbPath } from './indexing/paths';
+import { createWorkspacePattern, isWorkspaceInVscodeFolders, normalizeWorkspaceRoot, toWorkspaceRelPath } from './vscode/pathUtils';
 
 const log = createLogger('ThunderController');
 
@@ -68,18 +84,32 @@ export class ThunderController {
   private diagnosticsService = new DiagnosticsService();
   private memoryService: MemoryService | undefined;
   private checkpointService: CheckpointService | undefined;
+  private sessionService: SessionService | undefined;
+  private planPersistence: PlanPersistence | undefined;
+  private memoryExtractor: MemoryExtractor | undefined;
+  private subagentTracker = new SubagentTracker();
+  private passiveMemoryInjector: PassiveMemoryInjector | undefined;
+  private memoryHookService: MemoryHookService | undefined;
+  private postEditValidator: PostEditValidator | undefined;
+  private vectorIndexService: VectorIndexService | undefined;
   private indexingStatus: IndexingStatus = { indexed: 0, queued: 0, running: false, failed: 0 };
   private contextToggles: ContextToggles = defaultContextToggles();
   private currentPlan: PlanView | null = null;
   private agentActivity: import('../vscode/webview/messages').AgentActivityEntry[] = [];
+  private agentLiveStatus: import('../vscode/webview/messages').AgentLiveStatusView | null = null;
   private tokenUsage = {
     sessionTotal: 0,
+    lastPromptTokens: 0,
     lastContextTokens: 0,
     lastResponseTokens: 0,
     turnCount: 0,
   };
   private uiUpdate: UiUpdateCallback | undefined;
+  private autoFixCallback: ((message: string) => Promise<void>) | undefined;
+  private autoFixDepth = 0;
   private disposed = false;
+  private workspaceNotice: { kind: 'ok' | 'error' | 'warn'; message: string } | null = null;
+  private configDisposable: vscode.Disposable | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.configService = new ConfigService(context);
@@ -88,6 +118,10 @@ export class ThunderController {
 
   setUiUpdateCallback(cb: UiUpdateCallback): void {
     this.uiUpdate = cb;
+  }
+
+  setAutoFixCallback(cb: (message: string) => Promise<void>): void {
+    this.autoFixCallback = cb;
   }
 
   private notifyUi(partial: Partial<WebviewState>): void {
@@ -119,17 +153,25 @@ export class ThunderController {
     const apiKey = await this.configService.getApiKey();
     await this.providerRegistry.resolveFromConfig(config.provider, apiKey);
 
+    this.configDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('thunder.workspace') || e.affectsConfiguration('thunder')) {
+        void this.reloadWorkspace();
+      }
+    });
+    this.context.subscriptions.push(this.configDisposable);
+
     log.info('ThunderController initialized', { workspace });
   }
 
   private initMinimalChat(workspace: string): void {
+    this.diagnosticsService.setWorkspaceRoot(workspace);
     const retriever = new HybridRetriever([
       new MentionedFileContextSource(workspace),
       new WorkspaceOverviewContextSource(workspace),
-      new CurrentEditorContextSource(),
-      new OpenFilesContextSource(),
+      new CurrentEditorContextSource(workspace),
+      new OpenFilesContextSource(workspace),
     ]);
-    this.chatOrchestrator = this.createChatOrchestrator(retriever, new ContextBudgeter());
+    this.chatOrchestrator = this.createChatOrchestrator(retriever, new ContextBudgeter(), undefined, workspace);
     log.info('Minimal chat orchestrator initialized');
   }
 
@@ -148,22 +190,51 @@ export class ThunderController {
     });
 
     this.scanner = new WorkspaceScanner(db, workspace);
+    this.vectorIndexService = new VectorIndexService(
+      new SqliteVectorIndex(db),
+      new HashEmbeddingProvider()
+    );
     this.indexQueue = new IndexQueue(db);
     this.indexQueue.onStatusChange((status) => {
       this.indexingStatus = status;
       this.notifyUi({ indexing: status });
     });
+    if (config.indexing.vectorsEnabled) {
+      this.indexQueue.setVectorService(workspace, this.vectorIndexService);
+    }
     this.indexingStatus = this.indexQueue.getStatus();
 
     this.gitService = new GitService(workspace);
     await this.gitService.initialize();
 
+    this.diagnosticsService.setWorkspaceRoot(workspace);
     this.memoryService = new MemoryService(db, workspace);
+    this.passiveMemoryInjector = new PassiveMemoryInjector(this.memoryService);
+    this.memoryHookService = new MemoryHookService(workspace);
+    this.postEditValidator = new PostEditValidator(this.diagnosticsService);
+    this.subagentTracker.setUpdateCallback((runs) => {
+      this.notifyUi({
+        subagents: runs.map((r) => ({
+          id: r.id,
+          task: r.task,
+          focus: r.focus,
+          status: r.status,
+          startedAt: r.startedAt,
+          finishedAt: r.finishedAt,
+          summary: r.summary,
+          error: r.error,
+        })),
+      });
+    });
     this.checkpointService = new CheckpointService(db, workspace, this.gitService);
+    this.sessionService = new SessionService(db);
+    this.planPersistence = new PlanPersistence(db);
     this.approvalQueue = new ApprovalQueue(db);
 
+    const effectiveSafety = applyAutonomyPreset(config.safety, config.safety.autonomyPreset);
+
     this.policyEngine = new ToolPolicyEngine(
-      config.safety,
+      effectiveSafety,
       (path) => this.ignoreService.isIgnored(path)
     );
 
@@ -177,21 +248,31 @@ export class ThunderController {
 
     const retriever = this.buildRetriever(db, workspace);
     const budgeter = new ContextBudgeter();
-    this.chatOrchestrator = this.createChatOrchestrator(retriever, budgeter, db);
+    this.chatOrchestrator = this.createChatOrchestrator(retriever, budgeter, db, workspace);
 
     const repoMap = new RepoMapService(db, workspace);
     const fts = new FtsIndex(db);
 
     this.toolRuntime.register(createReadFileTool(workspace, this.ignoreService));
+    this.toolRuntime.register(createReadFilesTool(workspace, this.ignoreService));
     this.toolRuntime.register(createListFilesTool(workspace, this.ignoreService));
-    this.toolRuntime.register(createSearchTool(fts));
+    this.toolRuntime.register(createSearchTool(fts, workspace));
+    this.toolRuntime.register(createSearchBatchTool(fts, workspace));
+    this.toolRuntime.register(createSpawnResearchAgentTool());
     this.toolRuntime.register(createRepoMapTool(repoMap));
     this.toolRuntime.register(createRetrieveContextTool(retriever, budgeter));
     this.toolRuntime.register(createGitDiffTool(this.gitService));
     this.toolRuntime.register(createDiagnosticsTool(this.diagnosticsService));
     this.toolRuntime.register(createWriteFileTool(workspace, this.ignoreService));
     this.toolRuntime.register(createApplyPatchTool(workspace, this.ignoreService));
-    this.toolRuntime.register(createRunCommandTool());
+    this.toolRuntime.register(createRunCommandTool(workspace, () => this.session?.mode ?? 'plan'));
+    this.toolRuntime.register(createMemorySearchTool(this.memoryService));
+    this.toolRuntime.register(createMemoryWriteTool(this.memoryService, () => this.session?.id ?? ''));
+
+    this.memoryExtractor = new MemoryExtractor(
+      this.memoryService,
+      config.memory.summarizeAfterTask
+    );
 
     this.setupFileWatcher(workspace);
   }
@@ -199,9 +280,26 @@ export class ThunderController {
   private createChatOrchestrator(
     retriever: HybridRetriever,
     budgeter: ContextBudgeter,
-    db?: import('./indexing/ThunderDb').ThunderDb
+    db?: import('./indexing/ThunderDb').ThunderDb,
+    workspace?: string
   ): ChatOrchestrator {
     const orchestrator = new ChatOrchestrator(retriever, budgeter, db);
+    const ws = workspace ?? this.resolveWorkspacePath();
+    orchestrator.configure({
+      toolRuntime: this.toolRuntime,
+      toolExecutor: this.toolExecutor,
+      sessionService: this.sessionService,
+      planPersistence: this.planPersistence,
+      memoryExtractor: this.memoryExtractor,
+      memoryConfig: this.configService.getConfig().memory,
+      passiveMemoryInjector: this.passiveMemoryInjector,
+      memoryHookService: this.memoryHookService,
+      postEditValidator: this.postEditValidator,
+      onPostWrite: async (relPath) => {
+        await this.validateAfterWrite(relPath);
+      },
+      workspace: ws,
+    });
     orchestrator.setToolExecutor(this.toolExecutor);
     orchestrator.setContextPackCallback((pack, views, budget) => {
       this.notifyUi({
@@ -212,18 +310,24 @@ export class ThunderController {
       });
     });
     orchestrator.setActivityCallback((entry) => {
-      this.agentActivity = [...this.agentActivity.slice(-40), entry];
+      this.agentActivity = [...this.agentActivity.slice(-20), entry];
       const partial: Partial<WebviewState> = { agentActivity: this.agentActivity };
       if (entry.kind === 'approval') {
         partial.approvals = (this.approvalQueue?.getPending() ?? []).map(toApprovalView);
       }
       this.notifyUi(partial);
     });
-    orchestrator.setTokenUsageCallback((contextTokens, responseText) => {
+    orchestrator.setLiveStatusCallback((status) => {
+      this.agentLiveStatus = status;
+      this.notifyUi({ agentLiveStatus: status });
+    });
+    orchestrator.setTokenUsageCallback((promptTokens, contextTokens, responseText) => {
       const responseTokens = Math.ceil(responseText.length / 4);
+      const turnTokens = promptTokens + responseTokens;
+      this.tokenUsage.lastPromptTokens = promptTokens;
       this.tokenUsage.lastContextTokens = contextTokens;
       this.tokenUsage.lastResponseTokens = responseTokens;
-      this.tokenUsage.sessionTotal += contextTokens + responseTokens;
+      this.tokenUsage.sessionTotal += turnTokens;
       this.tokenUsage.turnCount += 1;
       const config = this.configService.getConfig();
       this.notifyUi({
@@ -245,7 +349,7 @@ export class ThunderController {
     const db = this.indexService?.getDb();
     if (!workspace || !db) return;
     const retriever = this.buildRetriever(db, workspace);
-    this.chatOrchestrator = this.createChatOrchestrator(retriever, new ContextBudgeter(), db);
+    this.chatOrchestrator = this.createChatOrchestrator(retriever, new ContextBudgeter(), db, workspace);
   }
 
   private buildRetriever(db: import('./indexing/ThunderDb').ThunderDb, workspace: string): HybridRetriever {
@@ -253,8 +357,8 @@ export class ThunderController {
     sources.push(
       new MentionedFileContextSource(workspace),
       new WorkspaceOverviewContextSource(workspace),
-      new CurrentEditorContextSource(),
-      new OpenFilesContextSource()
+      new CurrentEditorContextSource(workspace),
+      new OpenFilesContextSource(workspace)
     );
     if (this.contextToggles.fts) {
       sources.push(new FtsContextSource(db));
@@ -264,39 +368,53 @@ export class ThunderController {
     if (this.contextToggles.gitDiff && this.gitService) sources.push(new GitDiffContextSource(this.gitService));
     if (this.contextToggles.diagnostics) sources.push(new DiagnosticsContextSource(this.diagnosticsService));
     if (this.contextToggles.memory) sources.push(new MemoryContextSource(this.memoryService));
+    if (this.contextToggles.vectors && this.vectorIndexService) {
+      sources.push(new VectorContextSource(this.vectorIndexService, workspace));
+    }
     return new HybridRetriever(sources);
   }
 
   private setupFileWatcher(workspace: string): void {
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspace, '**/*')
-    );
+    if (!isWorkspaceInVscodeFolders(workspace)) {
+      log.info('Skipping VS Code file watcher — workspace override is outside open folders');
+      return;
+    }
 
-    const enqueue = (uri: vscode.Uri) => {
-      if (!this.indexQueue || !this.scanner) return;
-      const relPath = vscode.workspace.asRelativePath(uri);
-      if (this.ignoreService.isIgnored(relPath)) return;
-      const fileId = this.scanner.getFileId(relPath);
-      if (fileId) {
-        this.indexQueue.enqueue([{
-          fileId,
-          relPath,
-          absPath: uri.fsPath,
-          language: null,
-        }]);
-      }
-    };
+    try {
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        createWorkspacePattern(workspace, '**/*')
+      );
 
-    watcher.onDidChange(enqueue);
-    watcher.onDidCreate(enqueue);
-    this.context.subscriptions.push(watcher);
+      const enqueue = (uri: vscode.Uri) => {
+        if (!this.indexQueue || !this.scanner) return;
+        const relPath = toWorkspaceRelPath(uri, workspace);
+        if (!relPath || this.ignoreService.isIgnored(relPath)) return;
+        const fileId = this.scanner.getFileId(relPath);
+        if (fileId) {
+          this.indexQueue.enqueue([{
+            fileId,
+            relPath,
+            absPath: uri.fsPath,
+            language: null,
+          }]);
+        }
+      };
+
+      watcher.onDidChange(enqueue);
+      watcher.onDidCreate(enqueue);
+      this.context.subscriptions.push(watcher);
+    } catch (error) {
+      log.warn('File watcher setup failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async buildUiState(base: Partial<WebviewState> = {}): Promise<WebviewState> {
     const config = this.configService.getConfig();
     const apiKey = await this.configService.getApiKey();
     const workspacePath = this.resolveWorkspacePath();
-    const override = config.workspace.rootPathOverride?.trim() ?? '';
+    const override = this.configService.getWorkspaceOverride();
     const vscodeFolders = this.getVscodeWorkspaceFolders();
     const indexDbPath = workspacePath ? resolveDbPath(workspacePath) : '';
 
@@ -313,6 +431,8 @@ export class ThunderController {
       ...initialWebviewState(),
       tab: base.tab ?? 'chat',
       messages: base.messages ?? [],
+      currentSessionId: base.currentSessionId ?? this.session?.id ?? '',
+      chatHistory: base.chatHistory ?? [],
       loading: base.loading ?? false,
       error: base.error ?? null,
       showContextPreview: base.showContextPreview ?? false,
@@ -320,6 +440,22 @@ export class ThunderController {
       contextTokenEstimate: base.contextTokenEstimate ?? 0,
       contextBudget: base.contextBudget ?? null,
       agentActivity: base.agentActivity ?? [],
+      agentLiveStatus: base.agentLiveStatus ?? this.agentLiveStatus,
+      subagents: base.subagents ?? this.subagentTracker.getRuns().map((r) => ({
+        id: r.id,
+        task: r.task,
+        focus: r.focus,
+        status: r.status,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        summary: r.summary,
+        error: r.error,
+      })),
+      vectorIndex: {
+        enabled: config.indexing.vectorsEnabled,
+        embeddedChunks: this.vectorIndexService?.count(workspacePath) ?? 0,
+        provider: config.indexing.vectorsEnabled ? 'hash-fallback' : 'none',
+      },
       tokenUsage: base.tokenUsage ?? {
         ...this.tokenUsage,
         contextWindow: config.provider.contextWindow,
@@ -359,6 +495,7 @@ export class ThunderController {
       workspaceOverride: override,
       usingWorkspaceOverride: Boolean(override),
       indexDbPath,
+      workspaceNotice: this.workspaceNotice,
     };
   }
 
@@ -378,6 +515,38 @@ export class ThunderController {
     this.notifyUi({ agentActivity: this.agentActivity });
   }
 
+  private async validateAfterWrite(relPath: string): Promise<void> {
+    const errors = await this.diagnosticsService.waitForFileErrors(relPath);
+    if (errors.length === 0) {
+      this.pushActivity('info', `Validated ${relPath}`, 'No TypeScript/linter errors detected');
+      return;
+    }
+
+    const detail = errors.map((e) => `Line ${e.line}: ${e.message}`).join('\n');
+    this.pushActivity('error', `${errors.length} error(s) in ${relPath} after apply`, detail);
+
+    if (this.session?.mode !== 'act' || !this.autoFixCallback || this.autoFixDepth >= 2) {
+      return;
+    }
+
+    this.autoFixDepth += 1;
+    try {
+      const fixMessage = [
+        `The file \`${relPath}\` was written but VS Code reports these errors:`,
+        detail,
+        '',
+        `Fix all errors and output the corrected FULL file using:`,
+        '```tsx|CODE_EDIT_BLOCK|' + relPath,
+        '// complete corrected file',
+        '```',
+      ].join('\n');
+      this.pushActivity('info', 'Auto-fixing validation errors…', relPath);
+      await this.autoFixCallback(fixMessage);
+    } finally {
+      this.autoFixDepth -= 1;
+    }
+  }
+
   getSession(): ThunderSession | undefined { return this.session; }
   getConfigService(): ConfigService { return this.configService; }
   getProviderRegistry(): LlmProviderRegistry { return this.providerRegistry; }
@@ -387,20 +556,61 @@ export class ThunderController {
   getMemoryService(): MemoryService | undefined { return this.memoryService; }
   getCheckpointService(): CheckpointService | undefined { return this.checkpointService; }
 
+  startNewChat(): string {
+    const workspace = this.resolveWorkspacePath();
+    const mode = this.session?.mode ?? 'plan';
+    this.session = new ThunderSession(workspace, mode);
+    this.sessionService?.ensureSession(this.session);
+    this.currentPlan = null;
+    this.agentActivity = [];
+    this.agentLiveStatus = null;
+    this.tokenUsage = {
+      sessionTotal: 0,
+      lastPromptTokens: 0,
+      lastContextTokens: 0,
+      lastResponseTokens: 0,
+      turnCount: 0,
+    };
+    this.notifyUi({
+      currentSessionId: this.session.id,
+      plan: null,
+      agentActivity: [],
+      agentLiveStatus: null,
+      subagents: [],
+      contextPreview: [],
+      contextTokenEstimate: 0,
+      contextBudget: null,
+      tokenUsage: {
+        ...this.tokenUsage,
+        contextWindow: this.configService.getConfig().provider.contextWindow,
+      },
+    });
+    return this.session.id;
+  }
+
   getWorkspacePath(): string {
     return this.resolveWorkspacePath();
   }
 
   resolveWorkspacePath(): string {
-    const override = this.configService.getConfig().workspace.rootPathOverride?.trim();
+    const override = this.configService.getWorkspaceOverride();
     if (override) {
-      const resolved = isAbsolute(override) ? override : resolve(override);
+      const resolved = normalizeWorkspaceRoot(override);
+      if (!resolved) {
+        log.warn('Invalid workspace override', { path: override });
+        return '';
+      }
       if (!existsSync(resolved)) {
         log.warn('Configured workspace override does not exist', { path: resolved });
       }
       return resolved;
     }
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    return normalizeWorkspaceRoot(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '') ?? '';
+  }
+
+  private setWorkspaceNotice(kind: 'ok' | 'error' | 'warn', message: string): void {
+    this.workspaceNotice = { kind, message };
+    this.notifyUi({ workspaceNotice: this.workspaceNotice });
   }
 
   getVscodeWorkspaceFolders(): string[] {
@@ -428,30 +638,57 @@ export class ThunderController {
       return;
     }
 
-    const resolved = isAbsolute(trimmed) ? trimmed : resolve(trimmed);
+    const resolved = normalizeWorkspaceRoot(trimmed);
+    if (!resolved) {
+      this.setWorkspaceNotice('error', 'Invalid path. Use an absolute path like /Users/you/project');
+      void vscode.window.showErrorMessage('Thunder: Invalid workspace path.');
+      return;
+    }
     if (!existsSync(resolved)) {
+      this.setWorkspaceNotice('error', `Path does not exist: ${resolved}`);
       void vscode.window.showErrorMessage(`Thunder: Path does not exist: ${resolved}`);
+      return;
+    }
+    if (!statSync(resolved).isDirectory()) {
+      this.setWorkspaceNotice('error', `Path is not a folder: ${resolved}`);
+      void vscode.window.showErrorMessage(`Thunder: Path is not a folder: ${resolved}`);
       return;
     }
 
     await this.configService.setWorkspaceOverride(resolved);
     await this.reloadWorkspace();
+    this.setWorkspaceNotice('ok', `Workspace saved: ${resolved}`);
     void vscode.window.showInformationMessage(`Thunder: Using workspace ${resolved}`);
   }
 
   async clearWorkspaceOverride(): Promise<void> {
     await this.configService.clearWorkspaceOverride();
     await this.reloadWorkspace();
+    const fallback = this.resolveWorkspacePath();
+    if (fallback) {
+      this.setWorkspaceNotice('ok', `Using VS Code folder: ${fallback}`);
+    } else {
+      this.setWorkspaceNotice('warn', 'Override cleared. Open a folder or set a path below.');
+    }
     void vscode.window.showInformationMessage('Thunder: Using VS Code open folder for workspace.');
   }
 
-  async sendMessage(content: string): Promise<AsyncIterable<string>> {
+  async sendMessage(
+    content: string,
+    recentMessages: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  ): Promise<AsyncIterable<string>> {
     if (!this.session) throw normalizeError(new Error('Session not initialized'));
     const provider = this.providerRegistry.getActive();
     if (!provider) throw normalizeError(new Error('No LLM provider configured'));
 
+    this.sessionService?.ensureSession(this.session, content.slice(0, 64));
+    this.toolRuntime.clearAuditLog();
+    this.subagentTracker.clear();
+    setSubagentTracker(this.subagentTracker);
+
     this.agentActivity = [];
-    this.notifyUi({ agentActivity: [], contextBudget: null });
+    this.agentLiveStatus = null;
+    this.notifyUi({ agentActivity: [], agentLiveStatus: null, contextBudget: null, subagents: [] });
 
     this.ensureChatOrchestrator();
     if (!this.chatOrchestrator) {
@@ -459,7 +696,7 @@ export class ThunderController {
         'No workspace configured. Open a folder (File → Open Folder) or set a path in Thunder Settings → Workspace.'
       ));
     }
-    return this.chatOrchestrator.send(this.session, provider, content);
+    return this.chatOrchestrator.send(this.session, provider, content, recentMessages);
   }
 
   private ensureChatOrchestrator(): void {
@@ -491,8 +728,6 @@ export class ThunderController {
       }
       if (!this.chatOrchestrator) {
         this.initMinimalChat(workspace);
-      } else {
-        this.chatOrchestrator.setToolExecutor(this.toolExecutor);
       }
     }
 
@@ -525,8 +760,38 @@ export class ThunderController {
       return;
     }
 
-    const result = await this.toolExecutor.executeApproved(request.toolName, fullInput);
     const path = typeof fullInput.path === 'string' ? fullInput.path : request.files[0];
+    const workspace = this.resolveWorkspacePath();
+
+    if (path && workspace && ['write_file', 'apply_patch'].includes(request.toolName)) {
+      try {
+        if (request.toolName === 'write_file' && typeof fullInput.content === 'string') {
+          await showWriteDiffPreview(workspace, path, fullInput.content);
+        } else if (
+          request.toolName === 'apply_patch' &&
+          typeof fullInput.oldText === 'string' &&
+          typeof fullInput.newText === 'string'
+        ) {
+          await showPatchDiffPreview(workspace, path, fullInput.oldText, fullInput.newText);
+        }
+      } catch {
+        // Non-fatal
+      }
+
+      if (this.checkpointService && this.session) {
+        await this.checkpointService.create(this.session.id, [path], 'pre-write');
+        this.refreshCheckpointPanel();
+      }
+    }
+
+    if (request.toolName === 'run_command' && workspace && typeof fullInput.command === 'string') {
+      if (this.checkpointService && this.session) {
+        await this.checkpointService.create(this.session.id, [], 'pre-write');
+        this.refreshCheckpointPanel();
+      }
+    }
+
+    const result = await this.toolExecutor.executeApproved(request.toolName, fullInput);
 
     if (result.success) {
       this.pushActivity('apply', `Applied ${path ?? request.toolName}`, result.output);
@@ -536,6 +801,7 @@ export class ThunderController {
         if (workspace) {
           void vscode.window.showTextDocument(vscode.Uri.file(join(workspace, path)));
         }
+        await this.validateAfterWrite(path);
       }
     } else {
       this.pushActivity('error', `Failed to apply ${path ?? request.toolName}`, result.error);
@@ -550,14 +816,24 @@ export class ThunderController {
     }
   }
 
-  async testProviderConnection(): Promise<void> {
+  async testProviderConnection(settings?: import('../vscode/webview/messages').ProviderSettingsPayload): Promise<void> {
     const config = this.configService.getConfig();
     const apiKey = await this.configService.getApiKey();
+    const providerType = settings?.providerType ?? config.provider.type;
+    const baseUrl = settings?.baseUrl.trim() || config.provider.baseUrl;
+    const model = settings?.model.trim() || config.provider.model;
+    const contextWindow = settings?.contextWindow
+      ? Math.max(1024, Math.min(settings.contextWindow, 1_000_000))
+      : config.provider.contextWindow;
 
-    if (config.provider.type === 'echo') {
+    if (providerType === 'echo') {
       this.notifyUi({
         settings: {
           ...(await this.buildUiState()).settings,
+          providerType,
+          baseUrl,
+          model,
+          contextWindow,
           connectionOk: true,
           connectionStatus: 'Echo mode — no LLM needed. Responses are mirrored for UI testing.',
         },
@@ -566,14 +842,18 @@ export class ThunderController {
     }
 
     const result = await testOpenAiCompatibleConnection(
-      config.provider.baseUrl,
-      config.provider.model,
+      baseUrl,
+      model,
       apiKey
     );
 
     this.notifyUi({
       settings: {
         ...(await this.buildUiState()).settings,
+        providerType,
+        baseUrl,
+        model,
+        contextWindow,
         connectionOk: result.ok,
         connectionStatus: result.message,
       },
@@ -658,12 +938,20 @@ export class ThunderController {
   async indexWorkspace(): Promise<void> {
     const workspace = this.resolveWorkspacePath();
     if (!workspace) {
-      void vscode.window.showWarningMessage('Thunder: Open a workspace folder to index.');
+      this.setWorkspaceNotice('warn', 'Set a workspace path first (Browse or paste an absolute path).');
+      void vscode.window.showWarningMessage('Thunder: Set a workspace path in Settings before indexing.');
       return;
     }
 
     if (!this.indexService) {
-      await this.initializeWorkspaceServices(workspace);
+      try {
+        await this.initializeWorkspaceServices(workspace);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.setWorkspaceNotice('error', `Index init failed: ${msg}`);
+        void vscode.window.showErrorMessage(`Thunder: Could not initialize index — ${msg}`);
+        return;
+      }
     }
 
     const config = this.configService.getConfig();
@@ -691,7 +979,9 @@ export class ThunderController {
     })).filter((j) => j.fileId !== undefined);
 
     this.indexQueue.enqueue(jobs);
-    this.notifyUi({ indexing: this.indexingStatus });
+    this.indexingStatus = this.indexQueue.getStatus();
+    this.setWorkspaceNotice('ok', `Indexing ${jobs.length} files…`);
+    this.notifyUi({ indexing: this.indexingStatus, workspaceNotice: this.workspaceNotice });
     log.info('indexWorkspace', { total: jobs.length });
   }
 

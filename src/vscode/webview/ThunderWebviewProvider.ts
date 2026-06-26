@@ -6,16 +6,29 @@ import {
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
   type WebviewState,
+  type ChatMessage,
+  type ChatThreadSummary,
   initialWebviewState,
 } from './messages';
 
 const log = createLogger('ThunderWebviewProvider');
+
+function removeTrailingAssistant(messages: ChatMessage[]): ChatMessage[] {
+  const next = [...messages];
+  const last = next[next.length - 1];
+  if (last?.role === 'assistant') {
+    next.pop();
+  }
+  return next;
+}
 
 export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'thunder.sidebar';
 
   private view: vscode.WebviewView | undefined;
   private state: WebviewState = initialWebviewState();
+  private archivedThreads = new Map<string, { summary: ChatThreadSummary; messages: ChatMessage[] }>();
+  private isStreaming = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -23,7 +36,36 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
   ) {
     this.controller.setUiUpdateCallback((partial) => {
       this.state = { ...this.state, ...partial };
+
+      if (this.isStreaming) {
+        if (partial.agentActivity) {
+          this.postMessage({ type: 'setAgentActivity', payload: partial.agentActivity });
+        }
+        if ('plan' in partial) {
+          this.postMessage({ type: 'setPlan', payload: partial.plan ?? null });
+        }
+        if ('agentLiveStatus' in partial) {
+          this.postMessage({ type: 'setAgentLiveStatus', payload: partial.agentLiveStatus ?? null });
+        }
+        if (partial.contextPreview) {
+          this.postMessage({
+            type: 'setContextPreview',
+            payload: { items: partial.contextPreview, totalTokens: partial.contextTokenEstimate ?? 0 },
+          });
+        }
+        if (partial.approvals) {
+          this.postMessage({ type: 'setApprovals', payload: partial.approvals });
+        }
+        if (partial.contextBudget !== undefined) {
+          // merged in final state sync
+        }
+        return;
+      }
+
       this.postMessage({ type: 'state', payload: this.state });
+    });
+    this.controller.setAutoFixCallback(async (message) => {
+      await this.runChatCompletion(message, true);
     });
   }
 
@@ -83,65 +125,53 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
 
       case 'sendMessage': {
         const content = message.payload.content.trim();
-        if (!content || this.state.loading) return;
+        await this.runChatCompletion(content, true);
+        break;
+      }
 
-        const userMessage = {
-          id: `msg-${Date.now()}`,
-          role: 'user' as const,
-          content,
-          timestamp: Date.now(),
-        };
+      case 'retryLastMessage': {
+        const lastUser = [...this.state.messages].reverse().find((m) => m.role === 'user');
+        if (lastUser?.content) {
+          await this.runChatCompletion(lastUser.content, false);
+        }
+        break;
+      }
 
+      case 'newChat':
+        this.archiveCurrentThread();
+        this.controller.startNewChat();
         this.state = {
           ...this.state,
-          loading: true,
+          tab: 'chat',
+          loading: false,
           error: null,
-          messages: [...this.state.messages, userMessage],
+          messages: [],
+          currentSessionId: this.controller.getSession()?.id ?? '',
+          chatHistory: this.historySummaries(),
+          contextPreview: [],
+          contextTokenEstimate: 0,
+          contextBudget: null,
+          agentActivity: [],
+          agentLiveStatus: null,
+          plan: null,
         };
         this.postMessage({ type: 'state', payload: this.state });
+        break;
 
-        try {
-          const stream = await this.controller.sendMessage(content);
-          const assistantId = `msg-${Date.now()}-assistant`;
-          let fullContent = '';
-
-          this.state = {
-            ...this.state,
-            messages: [
-              ...this.state.messages,
-              { id: assistantId, role: 'assistant', content: '', timestamp: Date.now(), streaming: true },
-            ],
-          };
-          this.postMessage({ type: 'state', payload: this.state });
-
-          for await (const chunk of stream) {
-            fullContent += chunk;
-            this.postMessage({
-              type: 'updateLastAssistant',
-              payload: { content: fullContent, streaming: true },
-            });
-          }
-
-          this.state = {
-            ...this.state,
-            loading: false,
-            messages: this.state.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: fullContent, streaming: false } : m
-            ),
-          };
-          this.postMessage({ type: 'state', payload: this.state });
-          await this.syncState();
-        } catch (error) {
-          const safe = normalizeError(error);
-          this.state = { ...this.state, loading: false, error: formatUserError(safe) };
-          this.postMessage({ type: 'state', payload: this.state });
-          log.error('sendMessage failed', { message: safe.message });
-        } finally {
-          if (this.state.loading) {
-            this.state = { ...this.state, loading: false };
-            this.postMessage({ type: 'state', payload: this.state });
-          }
-        }
+      case 'openChatThread': {
+        this.archiveCurrentThread();
+        const thread = this.archivedThreads.get(message.payload.id);
+        if (!thread) break;
+        this.state = {
+          ...this.state,
+          tab: 'chat',
+          loading: false,
+          error: null,
+          currentSessionId: message.payload.id,
+          messages: thread.messages,
+          chatHistory: this.historySummaries(),
+        };
+        this.postMessage({ type: 'state', payload: this.state });
         break;
       }
 
@@ -190,7 +220,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         break;
 
       case 'testProviderConnection':
-        await this.controller.testProviderConnection();
+        await this.controller.testProviderConnection(message.payload);
         break;
 
       case 'pickWorkspaceFolder':
@@ -252,6 +282,121 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         await this.syncState();
         break;
     }
+  }
+
+  private async runChatCompletion(content: string, appendUser: boolean): Promise<void> {
+    if (!content || this.state.loading) return;
+
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+    };
+
+    const messages = appendUser ? [...this.state.messages, userMessage] : removeTrailingAssistant(this.state.messages);
+    this.state = {
+      ...this.state,
+      tab: 'chat',
+      loading: true,
+      error: null,
+      messages,
+    };
+    this.postMessage({ type: 'state', payload: this.state });
+
+    const assistantId = `msg-${Date.now()}-assistant`;
+    this.isStreaming = true;
+    try {
+      const recentMessages = messages
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .slice(0, -1)
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+      const stream = await this.controller.sendMessage(content, recentMessages);
+      let fullContent = '';
+
+      this.state = {
+        ...this.state,
+        messages: [
+          ...this.state.messages,
+          { id: assistantId, role: 'assistant', content: '', timestamp: Date.now(), streaming: true },
+        ],
+      };
+      this.postMessage({ type: 'state', payload: this.state });
+
+      for await (const chunk of stream) {
+        fullContent += chunk;
+        this.state = {
+          ...this.state,
+          messages: this.state.messages.map((m) =>
+            m.id === assistantId ? { ...m, content: fullContent, streaming: true } : m
+          ),
+        };
+        this.postMessage({
+          type: 'updateLastAssistant',
+          payload: { content: fullContent, streaming: true },
+        });
+      }
+
+      this.isStreaming = false;
+      this.state = {
+        ...this.state,
+        loading: false,
+        messages: this.state.messages.map((m) =>
+          m.id === assistantId ? { ...m, content: fullContent, streaming: false } : m
+        ),
+      };
+      this.archiveCurrentThread();
+      this.state = { ...this.state, chatHistory: this.historySummaries() };
+      this.postMessage({ type: 'state', payload: this.state });
+      await this.syncState();
+    } catch (error) {
+      this.isStreaming = false;
+      const safe = normalizeError(error);
+      this.state = {
+        ...this.state,
+        loading: false,
+        error: `${formatUserError(safe)}\n\nUse Retry after fixing the provider/model, or switch models in Settings.`,
+      };
+      this.archiveCurrentThread();
+      this.state = { ...this.state, chatHistory: this.historySummaries() };
+      this.postMessage({ type: 'state', payload: this.state });
+      log.error('sendMessage failed', { message: safe.message });
+    } finally {
+      this.isStreaming = false;
+      if (this.state.loading) {
+        this.state = { ...this.state, loading: false };
+        this.postMessage({ type: 'state', payload: this.state });
+      }
+    }
+  }
+
+  private archiveCurrentThread(): void {
+    const id = this.state.currentSessionId || this.controller.getSession()?.id;
+    const messages = this.state.messages.filter((m) => m.content.trim());
+    if (!id || messages.length === 0) return;
+
+    const firstUser = messages.find((m) => m.role === 'user');
+    const last = messages[messages.length - 1];
+    const title = firstUser?.content.slice(0, 64) || 'Untitled chat';
+    this.archivedThreads.set(id, {
+      messages,
+      summary: {
+        id,
+        title,
+        lastMessage: last.content.slice(0, 120),
+        messageCount: messages.length,
+        updatedAt: last.timestamp,
+        tokenTotal: this.state.tokenUsage.sessionTotal,
+        turnCount: this.state.tokenUsage.turnCount,
+      },
+    });
+  }
+
+  private historySummaries(): ChatThreadSummary[] {
+    return [...this.archivedThreads.values()]
+      .map((t) => t.summary)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   private getHtml(webview: vscode.Webview): string {

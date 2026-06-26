@@ -1,19 +1,24 @@
+import { useEffect, useRef } from 'react';
 import type { ChatMessage } from '../../../vscode/webview/messages';
+import { MarkdownMessage } from './MarkdownMessage';
 
 interface MessageListProps {
   messages: ChatMessage[];
+  loading?: boolean;
 }
 
-function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+export function MessageList({ messages, loading }: MessageListProps) {
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-export function MessageList({ messages }: MessageListProps) {
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, loading]);
+
   if (messages.length === 0) {
     return (
       <div className="empty-chat">
-        <p className="empty-title">Welcome to Thunder</p>
-        <p className="empty-subtitle">Ask a question about your codebase to get started.</p>
+        <p className="empty-title">Thunder</p>
+        <p className="empty-subtitle">Ask about your codebase. Plan, review, or apply changes.</p>
       </div>
     );
   }
@@ -21,17 +26,27 @@ export function MessageList({ messages }: MessageListProps) {
   return (
     <div className="message-list" role="log" aria-live="polite">
       {messages.map((msg) => (
-        <div key={msg.id} className={`message message--${msg.role}`}>
-          <div className="message-header">
-            <span className="message-role">{msg.role === 'user' ? 'You' : 'Thunder'}</span>
-            <span className="message-time">{formatTime(msg.timestamp)}</span>
-          </div>
+        <article key={msg.id} className={`message message--${msg.role}`}>
           <div className="message-content">
-            {msg.content}
-            {msg.streaming && <span className="streaming-cursor" aria-hidden="true">▋</span>}
+            {msg.role === 'assistant' ? (
+              msg.content ? (
+                <MarkdownMessage content={msg.content} streaming={msg.streaming} />
+              ) : msg.streaming ? (
+                <p className="message-working">
+                  <span className="message-working__pulse" aria-hidden="true" />
+                  Thinking…
+                </p>
+              ) : null
+            ) : (
+              msg.content
+            )}
+            {msg.streaming && msg.content && !msg.content.includes('```') && (
+              <span className="streaming-cursor" aria-hidden="true">▋</span>
+            )}
           </div>
-        </div>
+        </article>
       ))}
+      <div ref={bottomRef} className="message-list__anchor" />
     </div>
   );
 }

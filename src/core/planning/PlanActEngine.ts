@@ -32,8 +32,23 @@ export function isWriteAllowed(mode: string): boolean {
   return mode === 'act';
 }
 
-export function isShellAllowed(mode: string): boolean {
-  return mode === 'act';
+/** Shell commands that only inspect the repo (allowed in plan/review for audits). */
+export function isReadOnlyCommand(command: string): boolean {
+  const cmd = command.trim();
+  if (!cmd) return false;
+  if (/^(npx\s+)?depcheck\b/i.test(cmd)) return true;
+  if (/^npm\s+(ls|list|outdated|audit)\b/i.test(cmd)) return true;
+  if (/^yarn\s+(why|list|info)\b/i.test(cmd)) return true;
+  if (/^pnpm\s+(why|list)\b/i.test(cmd)) return true;
+  if (/^(grep|rg|find|cat|head|tail|wc|sort|uniq|ls|tree)\b/i.test(cmd)) return true;
+  if (/^git\s+(status|diff|log|ls-files)\b/i.test(cmd)) return true;
+  return false;
+}
+
+export function isShellAllowed(mode: string, command?: string): boolean {
+  if (mode === 'act') return true;
+  if (command && isReadOnlyCommand(command)) return true;
+  return false;
 }
 
 export function isPatchAllowed(mode: string): boolean {

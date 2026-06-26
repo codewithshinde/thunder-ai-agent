@@ -18,7 +18,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     this.capabilities = {
       contextWindow: config.capabilities?.contextWindow ?? 8192,
       supportsStreaming: config.capabilities?.supportsStreaming ?? true,
-      supportsTools: config.capabilities?.supportsTools ?? false,
+      supportsTools: config.capabilities?.supportsTools ?? true,
       supportsEmbeddings: config.capabilities?.supportsEmbeddings ?? false,
     };
   }
@@ -32,17 +32,24 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       headers['Authorization'] = `Bearer ${this.config.apiKey}`;
     }
 
+    const body: Record<string, unknown> = {
+      model: request.model ?? this.config.model,
+      messages: request.messages.map(formatMessage),
+      temperature: request.temperature ?? 0.2,
+      max_tokens: request.maxTokens,
+      stream: request.stream !== false,
+    };
+
+    if (request.tools && request.tools.length > 0) {
+      body.tools = request.tools;
+      body.tool_choice = request.toolChoice ?? 'auto';
+    }
+
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          model: request.model ?? this.config.model,
-          messages: request.messages,
-          temperature: request.temperature ?? 0.2,
-          max_tokens: request.maxTokens,
-          stream: true,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -60,6 +67,40 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         );
       }
 
+      const stream = request.stream !== false;
+      if (!stream) {
+        const json = await response.json() as {
+          choices?: Array<{
+            message?: {
+              content?: string;
+              tool_calls?: Array<{
+                id: string;
+                type: 'function';
+                function: { name: string; arguments: string };
+              }>;
+            };
+            finish_reason?: string;
+          }>;
+        };
+        const message = json.choices?.[0]?.message;
+        if (message?.content) {
+          yield { content: message.content };
+        }
+        if (message?.tool_calls) {
+          for (const [index, tc] of message.tool_calls.entries()) {
+            yield {
+              tool_calls: [{
+                index,
+                id: tc.id,
+                function: tc.function,
+              }],
+            };
+          }
+        }
+        yield { done: true, finish_reason: json.choices?.[0]?.finish_reason };
+        return;
+      }
+
       if (!response.body) {
         throw new ProviderError('Empty response body from provider', 'parse');
       }
@@ -73,4 +114,15 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   async countTokens(text: string): Promise<number> {
     return estimateTokensAsync(text);
   }
+}
+
+function formatMessage(msg: ChatRequest['messages'][number]): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    role: msg.role,
+    content: msg.content,
+  };
+  if (msg.name) out.name = msg.name;
+  if (msg.tool_call_id) out.tool_call_id = msg.tool_call_id;
+  if (msg.tool_calls) out.tool_calls = msg.tool_calls;
+  return out;
 }

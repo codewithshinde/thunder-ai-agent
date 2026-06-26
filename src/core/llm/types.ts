@@ -1,7 +1,15 @@
+import type { ToolDefinition } from './toolTypes';
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
 }
 
 export interface ChatRequest {
@@ -10,12 +18,25 @@ export interface ChatRequest {
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
+  tools?: ToolDefinition[];
+  toolChoice?: 'auto' | 'none' | 'required';
+}
+
+export interface ToolCallDelta {
+  index: number;
+  id?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
 }
 
 export interface ChatDelta {
   content?: string;
   done?: boolean;
   error?: string;
+  tool_calls?: ToolCallDelta[];
+  finish_reason?: string;
 }
 
 export interface ModelCapabilities {

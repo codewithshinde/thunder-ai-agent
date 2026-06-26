@@ -30,7 +30,17 @@ export async function* parseSseStream(
 
         try {
           const json = JSON.parse(trimmed.slice(6)) as {
-            choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
+            choices?: Array<{
+              delta?: {
+                content?: string;
+                tool_calls?: Array<{
+                  index: number;
+                  id?: string;
+                  function?: { name?: string; arguments?: string };
+                }>;
+              };
+              finish_reason?: string | null;
+            }>;
             error?: { message?: string };
           };
 
@@ -38,13 +48,23 @@ export async function* parseSseStream(
             throw new ProviderError(json.error.message, 'parse');
           }
 
-          const content = json.choices?.[0]?.delta?.content;
-          if (content) {
-            yield { content };
+          const choice = json.choices?.[0];
+          const delta = choice?.delta;
+
+          const out: ChatDelta = {};
+          if (delta?.content) {
+            out.content = delta.content;
+          }
+          if (delta?.tool_calls) {
+            out.tool_calls = delta.tool_calls;
+          }
+          if (choice?.finish_reason) {
+            out.finish_reason = choice.finish_reason;
+            out.done = true;
           }
 
-          if (json.choices?.[0]?.finish_reason) {
-            yield { done: true };
+          if (out.content || out.tool_calls || out.done) {
+            yield out;
           }
         } catch (e) {
           if (e instanceof ProviderError) {

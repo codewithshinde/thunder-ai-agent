@@ -1,61 +1,78 @@
 import { useVsCodeMessaging } from './state/useVsCodeMessaging';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
-import { ModeIndicator } from './components/ModeIndicator';
 import { ErrorBanner } from './components/ErrorBanner';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ApprovalCards } from './components/ApprovalCards';
-import { ContextPreview } from './components/ContextPreview';
-import { PlanPanel } from './components/PlanPanel';
 import { IndexingStatusBar } from './components/IndexingStatusBar';
-import { MemoryPanel } from './components/MemoryPanel';
-import { CheckpointPanel } from './components/CheckpointPanel';
-import { ContextTogglesPanel } from './components/ContextTogglesPanel';
 import { WorkspaceBanner } from './components/WorkspaceBanner';
-import { AgentActivityPanel } from './components/AgentActivityPanel';
 import { TokenMeter } from './components/TokenMeter';
+import { HistoryPanel } from './components/HistoryPanel';
+import { AgentLiveStatus } from './components/AgentLiveStatus';
+import { AgentDrawer } from './components/AgentDrawer';
+import { IconButton } from './components/IconButton';
+import { IconChat, IconHistory, IconPlus, IconSettings } from './components/Icons';
 
 export function App() {
   const { state, postMessage } = useVsCodeMessaging();
+  const canRetry = state.messages.some((m) => m.role === 'user');
 
   return (
     <div className="thunder-app">
-      <header className="thunder-header">
-        <div className="thunder-brand">
+      <header className="thunder-toolbar">
+        <div className="toolbar-brand">
           <span className="thunder-logo" aria-hidden="true">⚡</span>
-          <h1 className="thunder-title">Thunder AI Agent</h1>
+          <span className="toolbar-provider" title={state.providerLabel}>
+            {state.providerLabel}
+          </span>
         </div>
-        <nav className="thunder-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            className={`tab-btn ${state.tab === 'chat' ? 'tab-btn--active' : ''}`}
-            aria-selected={state.tab === 'chat'}
+        <nav className="toolbar-nav" role="tablist" aria-label="Main navigation">
+          {state.tab === 'chat' && (
+            <IconButton
+              label="New chat"
+              onClick={() => postMessage({ type: 'newChat' })}
+              className="toolbar-new-chat"
+            >
+              <IconPlus />
+            </IconButton>
+          )}
+          <IconButton
+            label="Chat"
+            active={state.tab === 'chat'}
             onClick={() => postMessage({ type: 'setTab', payload: 'chat' })}
           >
-            Chat
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`tab-btn ${state.tab === 'settings' ? 'tab-btn--active' : ''}`}
-            aria-selected={state.tab === 'settings'}
+            <IconChat />
+          </IconButton>
+          <IconButton
+            label="History"
+            active={state.tab === 'history'}
+            onClick={() => postMessage({ type: 'setTab', payload: 'history' })}
+          >
+            <IconHistory />
+          </IconButton>
+          <IconButton
+            label="Settings"
+            active={state.tab === 'settings'}
             onClick={() => postMessage({ type: 'setTab', payload: 'settings' })}
           >
-            Settings
-          </button>
+            <IconSettings />
+          </IconButton>
         </nav>
-        <IndexingStatusBar
-          status={state.indexing}
-          onIndex={() => postMessage({ type: 'indexWorkspace' })}
-        />
-        <span className="provider-badge" title="Active LLM provider and model">
-          {state.providerLabel}
-        </span>
-        <TokenMeter usage={state.tokenUsage} />
+        <div className="toolbar-meta">
+          <IndexingStatusBar
+            status={state.indexing}
+            onIndex={() => postMessage({ type: 'indexWorkspace' })}
+          />
+          <TokenMeter usage={state.tokenUsage} compact />
+        </div>
       </header>
 
-      <ErrorBanner error={state.error} onDismiss={() => postMessage({ type: 'clearError' })} />
+      <ErrorBanner
+        error={state.error}
+        onRetry={() => postMessage({ type: 'retryLastMessage' })}
+        onSettings={() => postMessage({ type: 'setTab', payload: 'settings' })}
+        onDismiss={() => postMessage({ type: 'clearError' })}
+      />
 
       <WorkspaceBanner
         workspaceOpen={state.workspaceOpen}
@@ -72,59 +89,45 @@ export function App() {
       />
 
       {state.tab === 'chat' ? (
-        <>
-          <ModeIndicator
-            mode={state.mode}
-            onChange={(mode) => postMessage({ type: 'setMode', payload: mode })}
-          />
-          <ContextTogglesPanel
-            toggles={state.contextToggles}
-            onToggle={(source, enabled) =>
-              postMessage({ type: 'toggleContextSource', payload: { source, enabled } })
-            }
-          />
-          <ContextPreview
-            items={state.contextPreview}
-            totalTokens={state.contextTokenEstimate}
-            budget={state.contextBudget}
-            visible={state.showContextPreview}
-            onToggle={() => postMessage({ type: 'toggleContextPreview' })}
-          />
-          <AgentActivityPanel entries={state.agentActivity} loading={state.loading} />
-          <PlanPanel plan={state.plan} />
-          <main className="thunder-main">
-            <MessageList messages={state.messages} />
-          </main>
-          <div className="side-panels">
-            <MemoryPanel
-              memories={state.memories}
-              onDelete={(id) => postMessage({ type: 'deleteMemory', payload: { id } })}
-              onClear={() => postMessage({ type: 'clearMemory' })}
-            />
-            <CheckpointPanel
-              checkpoints={state.checkpoints}
-              onRestore={(id) => postMessage({ type: 'restoreCheckpoint', payload: { id } })}
+        <div className="chat-shell">
+          <div className="chat-body">
+            <MessageList messages={state.messages} loading={state.loading} />
+          </div>
+          <div className="chat-agent-zone">
+            <AgentLiveStatus status={state.agentLiveStatus} loading={state.loading} />
+            <AgentDrawer
+              loading={state.loading}
+              plan={state.plan}
+              agentActivity={state.agentActivity}
+              subagents={state.subagents}
+              contextPreview={state.contextPreview}
+              contextTokenEstimate={state.contextTokenEstimate}
+              contextBudget={state.contextBudget}
+              showContextPreview={state.showContextPreview}
+              onToggleContext={() => postMessage({ type: 'toggleContextPreview' })}
             />
           </div>
-          <footer className="thunder-footer">
-            <div className="footer-actions">
-              <button
-                type="button"
-                className="btn btn--secondary btn--small"
-                onClick={() => postMessage({ type: 'copyLastResponse' })}
-              >
-                Copy response
-              </button>
-            </div>
+          <footer className="chat-footer">
             <ChatInput
               loading={state.loading}
+              mode={state.mode}
+              tokenUsage={state.tokenUsage}
+              canRetry={canRetry}
               onSend={(content) => postMessage({ type: 'sendMessage', payload: { content } })}
               onStop={() => postMessage({ type: 'stopGeneration' })}
+              onModeChange={(mode) => postMessage({ type: 'setMode', payload: mode })}
+              onRetry={() => postMessage({ type: 'retryLastMessage' })}
+              onCopyResponse={() => postMessage({ type: 'copyLastResponse' })}
             />
           </footer>
-        </>
+        </div>
+      ) : state.tab === 'history' ? (
+        <HistoryPanel
+          threads={state.chatHistory}
+          onOpen={(id) => postMessage({ type: 'openChatThread', payload: { id } })}
+        />
       ) : (
-        <main className="thunder-main">
+        <main className="thunder-main settings-view">
           <SettingsPanel
             settings={state.settings}
             workspaceOpen={state.workspaceOpen}
@@ -134,17 +137,23 @@ export function App() {
             usingWorkspaceOverride={state.usingWorkspaceOverride}
             indexDbPath={state.indexDbPath}
             indexed={state.indexing.indexed}
+            indexingRunning={state.indexing.running}
+            workspaceNotice={state.workspaceNotice}
+            contextToggles={state.contextToggles}
             onSaveApiKey={(key) => postMessage({ type: 'saveApiKey', payload: { key } })}
             onSaveProviderSettings={(payload) =>
               postMessage({ type: 'saveProviderSettings', payload })
             }
-            onTestConnection={() => postMessage({ type: 'testProviderConnection' })}
+            onTestConnection={(payload) => postMessage({ type: 'testProviderConnection', payload })}
             onPickWorkspaceFolder={() => postMessage({ type: 'pickWorkspaceFolder' })}
             onSetWorkspaceOverride={(path) =>
               postMessage({ type: 'setWorkspaceOverride', payload: { path } })
             }
             onClearWorkspaceOverride={() => postMessage({ type: 'clearWorkspaceOverride' })}
             onIndex={() => postMessage({ type: 'indexWorkspace' })}
+            onToggleContext={(source, enabled) =>
+              postMessage({ type: 'toggleContextSource', payload: { source, enabled } })
+            }
           />
         </main>
       )}

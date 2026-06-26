@@ -55,13 +55,43 @@ export class PatchApplyService {
       return validation;
     }
 
+    const syntaxCheck = this.validateSyntax(patch.path, validation.proposedContent);
+    if (!syntaxCheck.success) {
+      return syntaxCheck;
+    }
+
     try {
       writeFileSync(join(this.workspace, patch.path), validation.proposedContent, 'utf-8');
       log.info('Patch applied', { path: patch.path });
-      return { success: true };
+      return { success: true, proposedContent: validation.proposedContent };
     } catch (e) {
       return { success: false, error: String(e) };
     }
+  }
+
+  /** Plandex-style validate-and-fix: basic syntax guards before apply. */
+  validateSyntax(path: string, content: string): PatchResult {
+    if (path.endsWith('.json')) {
+      try {
+        JSON.parse(content);
+      } catch (e) {
+        return { success: false, error: `Invalid JSON after patch: ${String(e)}` };
+      }
+    }
+
+    const openBraces = (content.match(/\{/g) ?? []).length;
+    const closeBraces = (content.match(/\}/g) ?? []).length;
+    const openParens = (content.match(/\(/g) ?? []).length;
+    const closeParens = (content.match(/\)/g) ?? []).length;
+
+    if (Math.abs(openBraces - closeBraces) > 3 || Math.abs(openParens - closeParens) > 3) {
+      return {
+        success: false,
+        error: 'Brace/paren imbalance detected — patch may be incomplete. Fix and retry.',
+      };
+    }
+
+    return { success: true, proposedContent: content };
   }
 
   createUnifiedDiff(path: string, oldContent: string, newContent: string): string {

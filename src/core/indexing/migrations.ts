@@ -194,6 +194,38 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 11,
+    name: 'create_session_summaries_table',
+    up: (db) => {
+      db.raw.exec(`
+        CREATE TABLE IF NOT EXISTS session_summaries (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY(session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_summaries_session ON session_summaries(session_id);
+      `);
+    },
+  },
+  {
+    version: 12,
+    name: 'create_chunk_embeddings_table',
+    up: (db) => {
+      db.raw.exec(`
+        CREATE TABLE IF NOT EXISTS chunk_embeddings (
+          chunk_id INTEGER PRIMARY KEY,
+          workspace TEXT NOT NULL,
+          embedding_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY(chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_workspace ON chunk_embeddings(workspace);
+      `);
+    },
+  },
 ];
 
 export class MigrationRunner {

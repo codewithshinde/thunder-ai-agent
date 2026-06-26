@@ -39,4 +39,8 @@ export class ToolRuntime {
   getAuditLog(): ToolCallAudit[] {
     return [...this.auditLog];
   }
+
+  clearAuditLog(): void {
+    this.auditLog = [];
+  }
 }

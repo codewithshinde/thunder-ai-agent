@@ -12,7 +12,7 @@ export const ProviderConfigSchema = z.object({
   apiKeyRef: z.string().default('thunder.apiKey'),
   contextWindow: z.number().int().positive().default(8192),
   supportsStreaming: z.boolean().default(true),
-  supportsTools: z.boolean().default(false),
+  supportsTools: z.boolean().default(true),
   supportsEmbeddings: z.boolean().default(false),
 });
 
@@ -23,6 +23,7 @@ export const IndexingConfigSchema = z.object({
   respectGitignore: z.boolean().default(true),
   respectThunderignore: z.boolean().default(true),
   maxConcurrency: z.number().int().positive().default(2),
+  vectorsEnabled: z.boolean().default(false),
 });
 
 export const SafetyConfigSchema = z.object({

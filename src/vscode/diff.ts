@@ -1,2 +1,2 @@
-// Diff utilities — expanded in Phase 15
-export {};
+// Re-export diff preview utilities
+export { showWriteDiffPreview, showPatchDiffPreview } from './diffPreview';

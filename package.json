@@ -97,6 +97,11 @@
           "default": 512000,
           "description": "Max file size to index in bytes"
         },
+        "thunder.indexing.vectorsEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable semantic vector search (SQLite hash embeddings; LanceDB optional later)"
+        },
         "thunder.safety.requireApprovalForWrites": {
           "type": "boolean",
           "default": true,

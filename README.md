@@ -6,15 +6,28 @@ Local-first VS Code AI coding agent with precise repo context, hybrid retrieval,
 
 - React + Vite sidebar webview with chat UI
 - OpenAI-compatible provider support (plus Echo provider for testing)
-- SQLite + FTS5 indexing with workspace scanner
+- **Agentic tool loop** — LLM calls `read_file`, `search`, `write_file`, `apply_patch`, `run_command`, etc.
+- **Task decomposition** — complex tasks split into steps with lifecycle tracking
+- **Multi-turn context** — conversation history + compaction in prompts
+- SQLite + FTS5 indexing with workspace scanner + **ripgrep fallback**
 - Symbol extraction (TS/JS/Python/Java/Go)
 - Repo map with ranking
 - Hybrid context retrieval and budgeter
-- Plan / Act / Review modes
-- Tool runtime with policy engine and approval queue
+- Plan / Act / Review modes with **plan persistence** (`task_plans` table)
+- Tool runtime with policy engine, **autonomy presets**, and approval queue
+- **VS Code diff preview** before writes/patches
+- **Auto-checkpoints** before approved writes
 - Patch apply with validation
-- Checkpoints and rollback
-- Local memory summaries
+- **Long-term memory** — `memory_search` / `memory_write` tools + post-task extraction
+- **Passive memory injection** — claude-mem style hook-based + automatic context injection
+- **Subagent status UI** — parallel research worker cards (Cline `SubagentStatusRow` pattern)
+- **LLM compaction + auto-continue** — long audit sessions stay within context budget
+- **Post-edit lint loop** — Aider-style validation reflection after writes
+- **PageRank repo map** — Aider-style symbol graph ranking
+- **Validate-and-fix on apply** — Plandex-style syntax guards before patch apply
+- **Optional vector search** — SQLite hash embeddings (LanceDB pluggable later)
+- **Session persistence** — `agent_sessions` + `agent_turns` in SQLite
+- Memory & checkpoint panels in chat UI
 
 ## Requirements
 
@@ -62,7 +75,9 @@ npm run package   # Build VSIX
 ```
 VS Code Extension → ThunderController → SQLite Index
   → HybridRetriever → ContextBudgeter → ChatOrchestrator
-  → ToolRuntime → ToolPolicyEngine → ApprovalQueue
+  → AgentLoop (tool round-trip) → PlanExecutor (step engine)
+  → ToolRuntime → ToolPolicyEngine → ApprovalQueue → DiffPreview / Checkpoints
+  → MemoryExtractor → MemoryService
 ```
 
 ## Troubleshooting

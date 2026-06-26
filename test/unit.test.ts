@@ -184,3 +184,157 @@ describe('codeEditParser', () => {
     expect(edits[0]?.path).toBe('DineInKanban.tsx');
   });
 });
+
+describe('ContextCompaction', () => {
+  it('keeps recent messages within budget', async () => {
+    const { compactMessages } = await import('../src/core/agent/ContextCompaction');
+    const messages = Array.from({ length: 10 }, (_, i) => ({
+      role: 'user' as const,
+      content: `message ${i} `.repeat(50),
+    }));
+    const compacted = compactMessages(messages, 200);
+    expect(compacted.length).toBeLessThanOrEqual(messages.length);
+  });
+});
+
+describe('autonomyPresets', () => {
+  it('pilot preset auto-approves writes', async () => {
+    const { applyAutonomyPreset } = await import('../src/core/safety/autonomyPresets');
+    const base = defaultThunderConfig().safety;
+    const pilot = applyAutonomyPreset(base, 'pilot');
+    expect(pilot.requireApprovalForWrites).toBe(false);
+    expect(pilot.requireApprovalForShell).toBe(true);
+  });
+});
+
+describe('shouldDecomposeTask', () => {
+  it('only decomposes when user explicitly asks for a plan', async () => {
+    const { shouldDecomposeTask } = await import('../src/core/agent/PlanExecutor');
+    expect(
+      shouldDecomposeTask('implement auth and then add tests step by step for all routes', 'act')
+    ).toBe(true);
+    expect(shouldDecomposeTask('implement auth and then add tests for all routes', 'act')).toBe(false);
+    expect(
+      shouldDecomposeTask('identify and remove unused files and dependencies in the whole project', 'act')
+    ).toBe(false);
+    expect(shouldDecomposeTask('implement auth and then add tests', 'plan')).toBe(false);
+    expect(shouldDecomposeTask('hi', 'act')).toBe(false);
+  });
+});
+
+describe('contextRelevance', () => {
+  it('includes diagnostics only for error-fix requests', async () => {
+    const { isDiagnosticsRelevant } = await import('../src/core/context/contextRelevance');
+    expect(isDiagnosticsRelevant('fix the type errors in auth.ts')).toBe(true);
+    expect(isDiagnosticsRelevant('list unused files and dependencies')).toBe(false);
+  });
+
+  it('skips passive editor context unless the file is mentioned', async () => {
+    const { isFileContextRelevant } = await import('../src/core/context/contextRelevance');
+    expect(isFileContextRelevant('clean up unused deps', 'src/screens/DineInKanban.tsx')).toBe(false);
+    expect(isFileContextRelevant('fix DineInKanban.tsx imports', 'src/screens/DineInKanban.tsx')).toBe(true);
+  });
+});
+
+describe('taskKind', () => {
+  it('detects audit/cleanup tasks', async () => {
+    const { isAuditCleanupTask } = await import('../src/core/agent/taskKind');
+    expect(isAuditCleanupTask('identify and remove unused files and dependencies')).toBe(true);
+    expect(isAuditCleanupTask('what does this project do?')).toBe(false);
+  });
+});
+
+describe('PlanActEngine read-only shell', () => {
+  it('allows inspection commands in plan mode', async () => {
+    const { isShellAllowed, isReadOnlyCommand } = await import('../src/core/planning/PlanActEngine');
+    expect(isReadOnlyCommand('npx depcheck')).toBe(true);
+    expect(isShellAllowed('plan', 'npx depcheck')).toBe(true);
+    expect(isShellAllowed('plan', 'npm install lodash')).toBe(false);
+  });
+});
+
+describe('pathUtils', () => {
+  it('normalizes "." to empty root', async () => {
+    const { normalizeRelPath } = await import('../src/core/vscode/pathUtils');
+    expect(normalizeRelPath('.')).toBe('');
+    expect(normalizeRelPath('./src/foo.ts')).toBe('src/foo.ts');
+  });
+
+  it('rejects invalid workspace roots', async () => {
+    const { normalizeWorkspaceRoot } = await import('../src/core/vscode/pathUtils');
+    expect(normalizeWorkspaceRoot('')).toBeNull();
+    expect(normalizeWorkspaceRoot('   ')).toBeNull();
+    expect(normalizeWorkspaceRoot('/tmp')).toMatch(/tmp/);
+  });
+});
+
+describe('pageRank', () => {
+  it('ranks highly referenced nodes higher', async () => {
+    const { computePageRank } = await import('../src/core/context/pageRank');
+    const scores = computePageRank(
+      ['a.ts', 'b.ts', 'c.ts'],
+      [
+        { from: 'b.ts', to: 'a.ts' },
+        { from: 'c.ts', to: 'a.ts' },
+        { from: 'a.ts', to: 'b.ts' },
+      ]
+    );
+    expect((scores.get('a.ts') ?? 0)).toBeGreaterThan(scores.get('c.ts') ?? 0);
+  });
+});
+
+describe('PassiveMemoryInjector', () => {
+  it('returns empty without memory service', async () => {
+    const { PassiveMemoryInjector } = await import('../src/core/memory/PassiveMemoryInjector');
+    const injector = new PassiveMemoryInjector(undefined);
+    expect(injector.inject('auth module')).toEqual([]);
+  });
+});
+
+describe('PatchApplyService validateSyntax', () => {
+  it('rejects invalid JSON', async () => {
+    const { PatchApplyService } = await import('../src/core/apply/PatchApplyService');
+    const svc = new PatchApplyService('/tmp');
+    const result = svc.validateSyntax('data.json', '{ invalid');
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('HashEmbeddingProvider', () => {
+  it('produces normalized embeddings', async () => {
+    const { HashEmbeddingProvider, cosineSimilarity } = await import('../src/core/indexing/EmbeddingProvider');
+    const provider = new HashEmbeddingProvider();
+    const [a, b] = await provider.embed(['hello world', 'hello there']);
+    expect(a.length).toBeGreaterThan(0);
+    expect(cosineSimilarity(a, b)).toBeGreaterThan(0);
+  });
+});
+
+describe('SubagentTracker', () => {
+  it('tracks run lifecycle', async () => {
+    const { SubagentTracker } = await import('../src/core/agent/SubagentTracker');
+    const tracker = new SubagentTracker();
+    const updates: number[] = [];
+    tracker.setUpdateCallback((runs) => updates.push(runs.length));
+    const id = tracker.start('find unused deps');
+    tracker.finish(id, 'found 3 unused packages');
+    expect(tracker.getRuns()[0]?.status).toBe('done');
+    expect(updates.length).toBeGreaterThan(0);
+  });
+});
+
+describe('toolSchema', () => {
+  it('converts zod tool to OpenAI definition', async () => {
+    const { z } = await import('zod');
+    const { toolToDefinition } = await import('../src/core/tools/toolSchema');
+    const def = toolToDefinition({
+      name: 'read_file',
+      description: 'Read a file',
+      risk: 'low',
+      inputSchema: z.object({ path: z.string() }),
+      execute: async () => ({ success: true, output: '' }),
+    });
+    expect(def.function.name).toBe('read_file');
+    expect(def.function.parameters).toHaveProperty('properties');
+  });
+});

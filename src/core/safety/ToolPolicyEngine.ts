@@ -1,3 +1,5 @@
+import { isReadOnlyCommand } from '../planning/PlanActEngine';
+
 export type PolicyDecision = 'allow' | 'require_approval' | 'block';
 
 export interface PolicyResult {
@@ -13,8 +15,8 @@ const DANGEROUS_COMMANDS = [
 ];
 
 const READ_ONLY_TOOLS = new Set([
-  'read_file', 'list_files', 'search', 'repo_map',
-  'retrieve_context', 'git_diff', 'diagnostics', 'memory_search',
+  'read_file', 'read_files', 'list_files', 'search', 'search_batch', 'repo_map',
+  'retrieve_context', 'git_diff', 'diagnostics', 'memory_search', 'spawn_research_agent',
 ]);
 
 const WRITE_TOOLS = new Set(['write_file', 'apply_patch', 'memory_write']);
@@ -25,6 +27,7 @@ export interface SafetyConfig {
   requireApprovalForShell: boolean;
   allowNetwork: boolean;
   blockDangerousCommands: boolean;
+  autonomyPreset?: string;
 }
 
 export class ToolPolicyEngine {
@@ -43,6 +46,10 @@ export class ToolPolicyEngine {
       return { decision: 'allow', reason: 'Read-only tool' };
     }
 
+    if (toolName === 'memory_write') {
+      return { decision: 'allow', reason: 'Memory writes are low risk' };
+    }
+
     if (WRITE_TOOLS.has(toolName)) {
       if (this.safetyConfig.requireApprovalForWrites) {
         return { decision: 'require_approval', reason: 'Write operations require approval' };
@@ -54,6 +61,9 @@ export class ToolPolicyEngine {
       const command = typeof input.command === 'string' ? input.command : '';
       if (this.safetyConfig.blockDangerousCommands && isDangerousCommand(command)) {
         return { decision: 'block', reason: 'Dangerous command blocked' };
+      }
+      if (isReadOnlyCommand(command)) {
+        return { decision: 'allow', reason: 'Read-only inspection command' };
       }
       if (this.safetyConfig.requireApprovalForShell) {
         return { decision: 'require_approval', reason: 'Shell commands require approval' };

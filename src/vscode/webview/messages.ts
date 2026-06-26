@@ -1,6 +1,6 @@
 import type { ThunderMode } from '../../core/ThunderSession';
 
-export type WebviewTab = 'chat' | 'settings';
+export type WebviewTab = 'chat' | 'history' | 'settings';
 
 export interface ChatMessage {
   id: string;
@@ -22,10 +22,21 @@ export interface ApprovalRequestView {
 
 export interface TokenUsageView {
   sessionTotal: number;
+  lastPromptTokens: number;
   lastContextTokens: number;
   lastResponseTokens: number;
   turnCount: number;
   contextWindow: number;
+}
+
+export interface ChatThreadSummary {
+  id: string;
+  title: string;
+  lastMessage: string;
+  messageCount: number;
+  updatedAt: number;
+  tokenTotal: number;
+  turnCount: number;
 }
 
 export interface ContextItemView {
@@ -55,9 +66,33 @@ export interface ContextBudgetView {
   dropped: ContextDropView[];
 }
 
+export interface AgentLiveStatusView {
+  label: string;
+  detail?: string;
+  stepCurrent?: number;
+  stepTotal?: number;
+}
+
+export interface SubagentStatusView {
+  id: string;
+  task: string;
+  focus?: string;
+  status: 'queued' | 'running' | 'done' | 'error';
+  startedAt: number;
+  finishedAt?: number;
+  summary?: string;
+  error?: string;
+}
+
+export interface VectorIndexStatusView {
+  enabled: boolean;
+  embeddedChunks: number;
+  provider: string;
+}
+
 export interface AgentActivityEntry {
   id: string;
-  kind: 'context' | 'read' | 'budget' | 'apply' | 'info' | 'approval' | 'error';
+  kind: 'context' | 'read' | 'budget' | 'apply' | 'info' | 'approval' | 'error' | 'tool';
   message: string;
   detail?: string;
   timestamp: number;
@@ -125,11 +160,14 @@ export interface ContextToggles {
   gitDiff: boolean;
   diagnostics: boolean;
   memory: boolean;
+  vectors: boolean;
 }
 
 export interface WebviewState {
   tab: WebviewTab;
   messages: ChatMessage[];
+  currentSessionId: string;
+  chatHistory: ChatThreadSummary[];
   mode: ThunderMode;
   loading: boolean;
   error: string | null;
@@ -138,6 +176,9 @@ export interface WebviewState {
   contextTokenEstimate: number;
   contextBudget: ContextBudgetView | null;
   agentActivity: AgentActivityEntry[];
+  agentLiveStatus: AgentLiveStatusView | null;
+  subagents: SubagentStatusView[];
+  vectorIndex: VectorIndexStatusView;
   plan: PlanView | null;
   indexing: IndexingStatusView;
   memories: MemoryItemView[];
@@ -152,8 +193,14 @@ export interface WebviewState {
   workspaceOverride: string;
   usingWorkspaceOverride: boolean;
   indexDbPath: string;
+  workspaceNotice: WorkspaceNoticeView | null;
   tokenUsage: TokenUsageView;
 }
+
+export type WorkspaceNoticeView = {
+  kind: 'ok' | 'error' | 'warn';
+  message: string;
+};
 
 // Extension -> Webview messages
 export type ExtensionToWebviewMessage =
@@ -167,12 +214,18 @@ export type ExtensionToWebviewMessage =
   | { type: 'setIndexing'; payload: IndexingStatusView }
   | { type: 'setApprovals'; payload: ApprovalRequestView[] }
   | { type: 'setContextPreview'; payload: { items: ContextItemView[]; totalTokens: number } }
-  | { type: 'setPlan'; payload: PlanView | null };
+  | { type: 'setPlan'; payload: PlanView | null }
+  | { type: 'setAgentActivity'; payload: AgentActivityEntry[] }
+  | { type: 'setAgentLiveStatus'; payload: AgentLiveStatusView | null }
+  | { type: 'setSubagents'; payload: SubagentStatusView[] };
 
 // Webview -> Extension messages
 export type WebviewToExtensionMessage =
   | { type: 'ready' }
   | { type: 'sendMessage'; payload: { content: string } }
+  | { type: 'retryLastMessage' }
+  | { type: 'newChat' }
+  | { type: 'openChatThread'; payload: { id: string } }
   | { type: 'setMode'; payload: ThunderMode }
   | { type: 'setTab'; payload: WebviewTab }
   | { type: 'stopGeneration' }
@@ -181,7 +234,7 @@ export type WebviewToExtensionMessage =
   | { type: 'approveAllPending' }
   | { type: 'saveApiKey'; payload: { key: string } }
   | { type: 'saveProviderSettings'; payload: ProviderSettingsPayload }
-  | { type: 'testProviderConnection' }
+  | { type: 'testProviderConnection'; payload?: ProviderSettingsPayload }
   | { type: 'pickWorkspaceFolder' }
   | { type: 'setWorkspaceOverride'; payload: { path: string } }
   | { type: 'clearWorkspaceOverride' }
@@ -198,8 +251,9 @@ export const defaultContextToggles = (): ContextToggles => ({
   repoMap: true,
   fts: true,
   gitDiff: true,
-  diagnostics: true,
+  diagnostics: false,
   memory: true,
+  vectors: false,
 });
 
 export const defaultSettingsView = (): SettingsView => ({
@@ -217,6 +271,8 @@ export const defaultSettingsView = (): SettingsView => ({
 export const initialWebviewState = (): WebviewState => ({
   tab: 'chat',
   messages: [],
+  currentSessionId: '',
+  chatHistory: [],
   mode: 'plan',
   loading: false,
   error: null,
@@ -225,6 +281,9 @@ export const initialWebviewState = (): WebviewState => ({
   contextTokenEstimate: 0,
   contextBudget: null,
   agentActivity: [],
+  agentLiveStatus: null,
+  subagents: [],
+  vectorIndex: { enabled: false, embeddedChunks: 0, provider: 'none' },
   plan: null,
   indexing: { indexed: 0, queued: 0, running: false, failed: 0 },
   memories: [],
@@ -239,8 +298,10 @@ export const initialWebviewState = (): WebviewState => ({
   workspaceOverride: '',
   usingWorkspaceOverride: false,
   indexDbPath: '',
+  workspaceNotice: null,
   tokenUsage: {
     sessionTotal: 0,
+    lastPromptTokens: 0,
     lastContextTokens: 0,
     lastResponseTokens: 0,
     turnCount: 0,

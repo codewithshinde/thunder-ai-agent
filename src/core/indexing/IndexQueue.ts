@@ -5,6 +5,8 @@ import { FtsIndex } from './FtsIndex';
 import { getExtractor, extractSymbolRefs } from './SymbolExtractor';
 import { createLogger } from '../telemetry/Logger';
 
+import type { VectorIndexService } from './VectorIndex';
+
 const log = createLogger('IndexQueue');
 
 export interface IndexJob {
@@ -32,6 +34,8 @@ export class IndexQueue {
   private readonly fts: FtsIndex;
   private knownSymbols = new Set<string>();
   private onProgress?: ProgressCallback;
+  private vectorService: VectorIndexService | undefined;
+  private workspace = '';
 
   constructor(private readonly db: ThunderDb) {
     this.fts = new FtsIndex(db);
@@ -40,6 +44,11 @@ export class IndexQueue {
 
   onStatusChange(cb: ProgressCallback): void {
     this.onProgress = cb;
+  }
+
+  setVectorService(workspace: string, service: VectorIndexService | undefined): void {
+    this.workspace = workspace;
+    this.vectorService = service;
   }
 
   enqueue(jobs: IndexJob[]): void {
@@ -106,11 +115,19 @@ export class IndexQueue {
       `);
 
       for (const chunk of chunks) {
-        insertChunk.run(
+        const result = insertChunk.run(
           job.fileId, chunk.chunkIndex, chunk.startLine, chunk.endLine,
           chunk.content, chunk.tokenEstimate, chunk.hash
         );
         this.fts.insertChunk(job.relPath, chunk.content);
+        if (this.vectorService && this.workspace) {
+          void this.vectorService.indexChunk(
+            this.workspace,
+            Number(result.lastInsertRowid),
+            job.relPath,
+            chunk.content
+          );
+        }
       }
 
       const extractor = getExtractor(job.language);

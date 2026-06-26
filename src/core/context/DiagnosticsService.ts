@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import type { ContextItem, ContextQuery, ContextSource } from './types';
 import { GitService } from './GitService';
+import { toWorkspaceRelPath } from '../vscode/pathUtils';
+import { isDiagnosticsRelevant } from './contextRelevance';
 
 export class GitDiffContextSource implements ContextSource {
   readonly id = 'git-diff';
@@ -23,11 +25,21 @@ export class GitDiffContextSource implements ContextSource {
 }
 
 export class DiagnosticsService {
+  private workspaceRoot = '';
+
+  setWorkspaceRoot(root: string): void {
+    this.workspaceRoot = root;
+  }
+
   getDiagnostics(): Array<{ file: string; severity: string; message: string; line: number }> {
     const results: Array<{ file: string; severity: string; message: string; line: number }> = [];
 
     for (const [uri, diags] of vscode.languages.getDiagnostics()) {
-      const relPath = vscode.workspace.asRelativePath(uri);
+      const relPath = this.workspaceRoot
+        ? toWorkspaceRelPath(uri, this.workspaceRoot)
+        : safeAsRelativePath(uri);
+      if (!relPath) continue;
+
       for (const d of diags) {
         results.push({
           file: relPath,
@@ -54,6 +66,40 @@ export class DiagnosticsService {
       .sort((a, b) => b[1] - a[1])
       .map(([file]) => file);
   }
+
+  getFileErrors(relPath: string): Array<{ line: number; message: string }> {
+    return this.getDiagnostics()
+      .filter((d) => d.file === relPath && d.severity === 'error')
+      .map((d) => ({ line: d.line, message: d.message }));
+  }
+
+  async waitForFileErrors(relPath: string, maxWaitMs = 2500): Promise<Array<{ line: number; message: string }>> {
+    const deadline = Date.now() + maxWaitMs;
+    let lastCount = -1;
+    let stableRounds = 0;
+    let latest: Array<{ line: number; message: string }> = [];
+
+    while (Date.now() < deadline) {
+      latest = this.getFileErrors(relPath);
+      if (latest.length === lastCount) {
+        stableRounds += 1;
+        if (stableRounds >= 2) break;
+      } else {
+        stableRounds = 0;
+        lastCount = latest.length;
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    return latest;
+  }
+}
+
+function safeAsRelativePath(uri: vscode.Uri): string | null {
+  if (uri.scheme !== 'file') return null;
+  const rel = vscode.workspace.asRelativePath(uri, false);
+  if (!rel || rel === '.' || rel.startsWith('..')) return null;
+  return rel;
 }
 
 export class DiagnosticsContextSource implements ContextSource {
@@ -61,7 +107,9 @@ export class DiagnosticsContextSource implements ContextSource {
 
   constructor(private readonly diagnosticsService: DiagnosticsService) {}
 
-  async retrieve(_query: ContextQuery): Promise<ContextItem[]> {
+  async retrieve(query: ContextQuery): Promise<ContextItem[]> {
+    if (!isDiagnosticsRelevant(query.text)) return [];
+
     const formatted = this.diagnosticsService.formatCompact();
     if (!formatted) return [];
 

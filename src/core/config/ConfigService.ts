@@ -6,6 +6,7 @@ import { type ThunderConfig, defaultThunderConfig } from './schema';
 import type { ProviderSettingsPayload } from '../../vscode/webview/messages';
 
 const log = createLogger('ConfigService');
+const WORKSPACE_OVERRIDE_STATE_KEY = 'thunder.workspace.rootPathOverride';
 
 export class ConfigService {
   private config: ThunderConfig = defaultThunderConfig();
@@ -24,7 +25,35 @@ export class ConfigService {
   }
 
   getConfig(): ThunderConfig {
-    return this.config;
+    return {
+      ...this.config,
+      workspace: {
+        rootPathOverride: this.getWorkspaceOverride(),
+      },
+    };
+  }
+
+  /** Settings + globalState (globalState wins when settings empty — reliable without an open folder). */
+  getWorkspaceOverride(): string {
+    const fromSettings = this.config.workspace.rootPathOverride?.trim() ?? '';
+    const fromState = this.context.globalState.get<string>(WORKSPACE_OVERRIDE_STATE_KEY)?.trim() ?? '';
+    return fromSettings || fromState;
+  }
+
+  private async persistWorkspaceOverride(path: string): Promise<void> {
+    await this.context.globalState.update(WORKSPACE_OVERRIDE_STATE_KEY, path);
+    try {
+      if (path) {
+        await updateWorkspaceOverride(path);
+      } else {
+        await clearWorkspaceOverride();
+      }
+    } catch (error) {
+      // Settings API can fail when no folder is open; globalState is the source of truth.
+      log.warn('Could not write workspace override to VS Code settings', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async getApiKey(ref?: string): Promise<string | undefined> {
@@ -46,13 +75,13 @@ export class ConfigService {
   }
 
   async setWorkspaceOverride(path: string): Promise<void> {
-    await updateWorkspaceOverride(path);
+    await this.persistWorkspaceOverride(path.trim());
     this.config = readThunderConfigFromSettings();
-    log.info('Workspace override updated', { path });
+    log.info('Workspace override updated', { path: path.trim() });
   }
 
   async clearWorkspaceOverride(): Promise<void> {
-    await clearWorkspaceOverride();
+    await this.persistWorkspaceOverride('');
     this.config = readThunderConfigFromSettings();
     log.info('Workspace override cleared');
   }
