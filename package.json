@@ -1,0 +1,159 @@
+{
+  "name": "thunder-ai-agent",
+  "displayName": "Thunder AI Agent",
+  "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
+  "version": "0.1.0",
+  "publisher": "thunder",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:thunder.sidebar",
+    "onCommand:thunder.openChat",
+    "onCommand:thunder.indexWorkspace",
+    "onCommand:thunder.showSettings"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "thunder.openChat",
+        "title": "Thunder: Open Chat",
+        "category": "Thunder"
+      },
+      {
+        "command": "thunder.indexWorkspace",
+        "title": "Thunder: Index Workspace",
+        "category": "Thunder"
+      },
+      {
+        "command": "thunder.showSettings",
+        "title": "Thunder: Show Settings",
+        "category": "Thunder"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "thunder",
+          "title": "Thunder",
+          "icon": "media/thunder-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "thunder": [
+        {
+          "type": "webview",
+          "id": "thunder.sidebar",
+          "name": "Thunder AI Agent"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Thunder AI Agent",
+      "properties": {
+        "thunder.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging and show stack traces in UI"
+        },
+        "thunder.provider.type": {
+          "type": "string",
+          "enum": ["openai-compatible", "echo"],
+          "default": "echo",
+          "description": "LLM provider type"
+        },
+        "thunder.provider.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "OpenAI-compatible API base URL"
+        },
+        "thunder.provider.model": {
+          "type": "string",
+          "default": "llama3",
+          "description": "Model name"
+        },
+        "thunder.provider.contextWindow": {
+          "type": "number",
+          "default": 8192,
+          "description": "Model context window size"
+        },
+        "thunder.indexing.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable workspace indexing"
+        },
+        "thunder.indexing.maxFileSizeBytes": {
+          "type": "number",
+          "default": 512000,
+          "description": "Max file size to index in bytes"
+        },
+        "thunder.safety.requireApprovalForWrites": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require approval for file writes"
+        },
+        "thunder.safety.requireApprovalForShell": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require approval for shell commands"
+        },
+        "thunder.safety.autonomyPreset": {
+          "type": "string",
+          "enum": ["safe", "guided", "builder", "pilot", "enterprise"],
+          "default": "guided",
+          "description": "Autonomy preset"
+        },
+        "thunder.memory.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable local memory"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "npm run compile:extension && npm run compile:webview",
+    "compile:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --packages=external --platform=node --format=cjs --sourcemap",
+    "compile:webview": "vite build",
+    "watch": "concurrently \"npm run watch:extension\" \"npm run watch:webview\"",
+    "watch:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --packages=external --platform=node --format=cjs --sourcemap --watch",
+    "watch:webview": "vite build --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "package": "vsce package --no-dependencies",
+    "smoke": "vitest run test/smoke"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vscode/vsce": "^2.32.0",
+    "concurrently": "^8.2.2",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.5.2",
+    "vite": "^5.3.1",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "@vscode/ripgrep": "^1.15.9",
+    "better-sqlite3": "^11.0.0",
+    "diff": "^5.2.0",
+    "ignore": "^5.3.1",
+    "nanoid": "^5.0.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "simple-git": "^3.25.0",
+    "zod": "^3.23.8"
+  }
+}
