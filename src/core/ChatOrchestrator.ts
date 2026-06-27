@@ -322,11 +322,39 @@ export class ChatOrchestrator {
 
     try {
       if (
-        toolsEnabled &&
         orchestrationEnabled &&
         this.planExecutor &&
         taskAnalysis.shouldPlan
       ) {
+        let planningDiscovery = '';
+
+        if (toolsEnabled) {
+          this.setLiveStatus('Planning discovery');
+          this.emitActivity('info', 'Running read-only planning discovery…');
+          try {
+            planningDiscovery = await this.planExecutor.runPlanningDiscovery(
+              provider,
+              session.mode,
+              pack,
+              userMessage,
+              taskAnalysis,
+              tools,
+              signal,
+              sharedLoopCallbacks,
+              {
+                agentMaxSteps: auditMode ? Math.min(agentConfig?.maxSteps ?? 10, 12) : Math.min(agentConfig?.maxSteps ?? 6, 8),
+                restrictRunCommandToReadOnly: true,
+              }
+            );
+            if (planningDiscovery) {
+              this.emitActivity('info', 'Planning discovery complete', planningDiscovery.slice(0, 500));
+            }
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            this.emitActivity('error', 'Planning discovery failed; continuing with retrieved context', msg);
+          }
+        }
+
         this.setLiveStatus('Analyzing requirements');
         this.emitActivity('info', 'Analyzing requirements…');
 
@@ -357,15 +385,26 @@ export class ChatOrchestrator {
           session.mode,
           pack,
           userMessage,
-          requirementAnalysis
+          requirementAnalysis,
+          planningDiscovery,
+          taskAnalysis
         );
         if (plan && plan.steps.length >= 1) {
           this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
+          if (session.mode !== 'act') {
+            this.deps.planPersistence?.save(session.id, plan);
+            this.deps.sessionLog?.append('plan_created', plan.goal, {
+              stepCount: plan.steps.length,
+              steps: plan.steps.map((s) => ({ id: s.id, title: s.title, risk: s.risk, phase: s.phase })),
+            });
+          }
 
           if (session.mode === 'act') {
             this.setLiveStatus('Executing plan', plan.goal, 1, plan.steps.length);
             this.emitActivity('info', `Executing ${plan.steps.length} steps…`);
-            yield formatPlanHeader(plan);
+            const planHeader = formatPlanHeader(plan);
+            fullResponse += planHeader;
+            yield planHeader;
 
             for await (const chunk of this.planExecutor.executePlan(
               session,
@@ -432,6 +471,15 @@ export class ChatOrchestrator {
           this.setLiveStatus(null);
           return;
         }
+
+        const failureText =
+          '\n\n⚠️ I could not produce a plan that passed the planning quality gate. No execution was started. Please retry with a little more scope detail, or switch off orchestration for a direct answer.\n';
+        fullResponse += failureText;
+        yield failureText;
+        this.emitActivity('error', 'Planning failed quality gate');
+        await this.finishTurn(session, provider, userMessage, fullResponse, pack, compacted);
+        this.setLiveStatus(null);
+        return;
       }
 
       const isResume = isApprovalContinuationMessage(userMessage);
@@ -874,7 +922,7 @@ function extractRequirementAnalysis(fullResponse: string): string {
 }
 
 function formatPlanHeader(plan: import('./planning/PlanActEngine').ThunderPlan): string {
-  return `## Plan: ${plan.goal}\n\n${plan.steps.length} steps to execute.\n\n`;
+  return `## Plan: ${plan.goal}\n\n${plan.steps.length} validated steps to execute.\n\n`;
 }
 
 function formatPlanAsResponse(plan: import('./planning/PlanActEngine').ThunderPlan): string {
@@ -882,10 +930,21 @@ function formatPlanAsResponse(plan: import('./planning/PlanActEngine').ThunderPl
     `## ${plan.goal}`,
     '',
     '### Recommended steps',
-    ...plan.steps.map((s, i) => `${i + 1}. **${s.title}** (${s.risk} risk)${s.files?.length ? ` — \`${s.files.join('`, `')}\`` : ''}`),
   ];
+
+  for (const [i, step] of plan.steps.entries()) {
+    lines.push(`${i + 1}. **${step.title}** (${step.risk} risk${step.phase ? `, ${step.phase}` : ''})`);
+    if (step.objective) lines.push(`   Objective: ${step.objective}`);
+    if (step.files?.length) lines.push(`   Files: \`${step.files.join('`, `')}\``);
+    if (step.tools?.length) lines.push(`   Tools: ${step.tools.join(', ')}`);
+    if (step.successCriteria?.length) lines.push(`   Success: ${step.successCriteria.join('; ')}`);
+  }
+
   if (plan.assumptions.length > 0) {
     lines.push('', '### Assumptions', ...plan.assumptions.map((a) => `- ${a}`));
+  }
+  if (plan.requiredApprovals.length > 0) {
+    lines.push('', '### Required approvals', ...plan.requiredApprovals.map((a) => `- ${a}`));
   }
   lines.push('', '---', '*Switch to **Act** mode and ask to execute this plan when ready.*');
   return lines.join('\n');

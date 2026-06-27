@@ -9,6 +9,9 @@ export type ThunderPlan = {
     steps: Array<{
       id: string;
       title: string;
+      objective?: string;
+      tools?: string[];
+      successCriteria?: string[];
       files?: string[];
       risk: 'low' | 'medium' | 'high';
     }>;
@@ -18,6 +21,9 @@ export type ThunderPlan = {
     title: string;
     status: 'pending' | 'running' | 'done' | 'blocked' | 'failed';
     phase?: PlanPhase;
+    objective?: string;
+    tools?: string[];
+    successCriteria?: string[];
     files?: string[];
     risk: 'low' | 'medium' | 'high';
   }>;
@@ -34,7 +40,24 @@ export function parsePlanFromText(text: string): ThunderPlan | null {
 
   try {
     const parsed = JSON.parse(jsonMatch[1]) as ThunderPlan;
+    if (parsed.goal && Array.isArray(parsed.phases)) {
+      parsed.steps = parsed.phases.flatMap((phase, phaseIndex) =>
+        (phase.steps ?? []).map((step, stepIndex) => ({
+          id: step.id ?? `step-${phaseIndex + 1}-${stepIndex + 1}`,
+          title: step.title,
+          status: 'pending' as const,
+          phase: phase.phase,
+          objective: step.objective ?? phase.objective,
+          tools: step.tools,
+          successCriteria: step.successCriteria,
+          files: step.files,
+          risk: step.risk ?? 'medium',
+        }))
+      );
+    }
     if (parsed.goal && Array.isArray(parsed.steps)) {
+      parsed.assumptions = Array.isArray(parsed.assumptions) ? parsed.assumptions : [];
+      parsed.requiredApprovals = Array.isArray(parsed.requiredApprovals) ? parsed.requiredApprovals : [];
       return parsed;
     }
   } catch {

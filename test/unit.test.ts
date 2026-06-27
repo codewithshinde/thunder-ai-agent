@@ -222,6 +222,64 @@ describe('Config schema', () => {
   });
 });
 
+describe('Plan/Act task analysis', () => {
+  it('plans actionable requests in plan mode without marking them for execution verification', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const analysis = analyzeTask('Implement a solid planning mode and separate act mode', 'plan');
+
+    expect(analysis.kind).toBe('implementation');
+    expect(analysis.shouldPlan).toBe(true);
+    expect(analysis.shouldVerify).toBe(false);
+    expect(analysis.summary).toContain('Plan mode');
+  });
+
+  it('plans and verifies actionable requests in act mode', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const analysis = analyzeTask('Implement a solid planning mode and separate act mode', 'act');
+
+    expect(analysis.kind).toBe('implementation');
+    expect(analysis.shouldPlan).toBe(true);
+    expect(analysis.shouldVerify).toBe(true);
+  });
+});
+
+describe('Plan parser', () => {
+  it('flattens rich phase plans into executable steps', async () => {
+    const { parsePlanFromText } = await import('../src/core/planning/PlanActEngine');
+    const parsed = parsePlanFromText(`\`\`\`json
+{
+  "goal": "Improve planning",
+  "assumptions": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "title": "Phase 1: Diagnostics",
+      "phase": "diagnostics",
+      "objective": "Inspect current behavior",
+      "steps": [
+        {
+          "id": "step-1",
+          "title": "Inspect mode routing",
+          "tools": ["read_file"],
+          "successCriteria": ["Mode branch is understood"],
+          "files": ["src/core/ChatOrchestrator.ts"],
+          "risk": "low"
+        }
+      ]
+    }
+  ],
+  "requiredApprovals": []
+}
+\`\`\``);
+
+    expect(parsed?.steps).toHaveLength(1);
+    expect(parsed?.steps[0].phase).toBe('diagnostics');
+    expect(parsed?.steps[0].objective).toBe('Inspect current behavior');
+    expect(parsed?.steps[0].tools).toEqual(['read_file']);
+    expect(parsed?.steps[0].successCriteria).toEqual(['Mode branch is understood']);
+  });
+});
+
 describe('extractFileMentions', () => {
   it('extracts file names from user text', async () => {
     const { extractFileMentions } = await import('../src/core/context/fuzzyFileMatch');
@@ -307,7 +365,7 @@ describe('shouldDecomposeTask', () => {
     expect(
       shouldDecomposeTask('identify and remove unused files and dependencies in the whole project', 'act')
     ).toBe(true);
-    expect(shouldDecomposeTask('implement auth and then add tests', 'plan')).toBe(false);
+    expect(shouldDecomposeTask('implement auth and then add tests', 'plan')).toBe(true);
     expect(shouldDecomposeTask('hi', 'act')).toBe(false);
     expect(shouldDecomposeTask('what does this project do?', 'act')).toBe(false);
   });

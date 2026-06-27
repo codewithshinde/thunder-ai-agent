@@ -33,6 +33,28 @@ export function analyzeTask(userMessage: string, mode: string): TaskAnalysis {
   const isContinuation = isApprovalContinuationMessage(text);
   const taskText = extractOriginalTaskMessage(text) ?? text;
 
+  if (isContinuation) {
+    const original = classifyTask(taskText);
+    return {
+      ...original,
+      shouldPlan: mode === 'plan' ? original.shouldPlan : false,
+      shouldUseSubagents: false,
+      summary: mode === 'plan'
+        ? `Plan-mode continuation review — do not execute: ${original.summary}`
+        : `Approval continuation — resume: ${original.summary}`,
+    };
+  }
+
+  const classified = classifyTask(taskText);
+  if (mode === 'plan') {
+    return {
+      ...classified,
+      shouldVerify: false,
+      shouldUseSubagents: classified.shouldUseSubagents || classified.kind === 'audit',
+      summary: `${classified.summary} Plan mode — produce the plan only; do not execute.`,
+    };
+  }
+
   if (mode !== 'act') {
     return {
       kind: 'question',
@@ -44,17 +66,7 @@ export function analyzeTask(userMessage: string, mode: string): TaskAnalysis {
     };
   }
 
-  if (isContinuation) {
-    const original = classifyTask(taskText);
-    return {
-      ...original,
-      shouldPlan: false,
-      shouldUseSubagents: false,
-      summary: `Approval continuation — resume: ${original.summary}`,
-    };
-  }
-
-  return classifyTask(taskText);
+  return classified;
 }
 
 function classifyTask(text: string): TaskAnalysis {

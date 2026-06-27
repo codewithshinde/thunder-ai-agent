@@ -12,6 +12,7 @@ import {
   buildStepPrompt,
   buildPlanGenerationPrompt,
   buildRequirementAnalysisPrompt,
+  buildPlanningDiscoveryPrompt,
   buildStepRetryPrompt,
   buildFinalValidationPrompt,
 } from '../planning/promptBuilder';
@@ -86,41 +87,83 @@ export class PlanExecutor {
     mode: ThunderSession['mode'],
     pack: ContextPack,
     userMessage: string,
-    requirementAnalysis?: string
+    requirementAnalysis?: string,
+    planningDiscovery?: string,
+    taskAnalysis?: TaskAnalysis
   ): Promise<ThunderPlan | null> {
-    const messages = buildPlanGenerationPrompt(mode, pack, userMessage, requirementAnalysis);
-    let response = '';
+    let repairNotes = '';
 
-    for await (const delta of provider.complete({ messages, stream: false })) {
-      if (delta.content) response += delta.content;
-      if (delta.error) throw new Error(delta.error);
-    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const effectiveAnalysis = repairNotes
+        ? `${requirementAnalysis ?? ''}\n\n## Previous plan was rejected\n${repairNotes}\nRegenerate a valid, more specific plan.`
+        : requirementAnalysis;
+      const messages = buildPlanGenerationPrompt(
+        mode,
+        pack,
+        userMessage,
+        effectiveAnalysis,
+        planningDiscovery,
+        taskAnalysis
+      );
+      let response = '';
 
-    const jsonMatch =
-      response.match(/```json\s*([\s\S]*?)\s*```/) ??
-      response.match(/\{[\s\S]*"(?:phases|steps)"[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    try {
-      const raw = jsonMatch[1] ?? jsonMatch[0];
-      const parsed = JSON.parse(raw) as ThunderPlan;
-      if (parsed.goal && Array.isArray(parsed.phases)) {
-        parsed.steps = flattenPlanPhases(parsed.phases);
+      for await (const delta of provider.complete({ messages, stream: false })) {
+        if (delta.content) response += delta.content;
+        if (delta.error) throw new Error(delta.error);
       }
-      if (parsed.goal && Array.isArray(parsed.steps)) {
-        parsed.steps = parsed.steps.map((s, i) => ({
-          ...s,
-          id: s.id ?? `step-${i + 1}`,
-          status: s.status ?? 'pending',
-          phase: normalizePlanPhase(s.phase) ?? inferStepPhase(s.title, i),
-          risk: s.risk ?? 'medium',
-        }));
-        return parsed;
+
+      const plan = parseGeneratedPlan(response);
+      if (!plan) {
+        repairNotes = '- Response did not contain valid plan JSON with goal and steps/phases.';
+        continue;
       }
-    } catch {
-      return null;
+
+      const issues = validatePlanQuality(plan, taskAnalysis);
+      if (issues.length === 0) {
+        return plan;
+      }
+
+      repairNotes = issues.map((issue) => `- ${issue}`).join('\n');
+      log.warn('Generated plan failed quality gate', { attempt: attempt + 1, issues });
     }
     return null;
+  }
+
+  async runPlanningDiscovery(
+    provider: LlmProvider,
+    mode: ThunderSession['mode'],
+    pack: ContextPack,
+    userMessage: string,
+    analysis: TaskAnalysis,
+    tools: ToolDefinition[],
+    signal?: AbortSignal,
+    loopCallbacks?: AgentLoopCallbacks,
+    options?: PlanExecutorOptions
+  ): Promise<string> {
+    const messages = buildPlanningDiscoveryPrompt(mode, pack, userMessage, analysis);
+    const readOnlyTools = tools.filter((tool) => PLANNING_DISCOVERY_TOOLS.has(tool.function.name));
+    let output = '';
+
+    for await (const chunk of this.agentLoop.run(
+      provider,
+      messages,
+      readOnlyTools,
+      signal,
+      loopCallbacks,
+      {
+        maxSteps: Math.min(options?.agentMaxSteps ?? 8, 12),
+        phaseLock: 'diagnostics',
+        restrictRunCommandToReadOnly: true,
+      }
+    )) {
+      output += chunk;
+      if (output.length > 12_000) {
+        output = output.slice(-12_000);
+      }
+      if (signal?.aborted) break;
+    }
+
+    return output.trim();
   }
 
   async *executePlan(
@@ -214,7 +257,7 @@ export class PlanExecutor {
         }
 
         stepSucceeded = true;
-        const summary = stepOutput.slice(-500).trim() || `Completed: ${step.title}`;
+        const summary = summarizeStepOutput(stepOutput, step.title);
         this.stepSummaries.push(`Step ${i + 1} (${step.title}): ${summary}`);
         plan.steps[i] = { ...plan.steps[i], status: 'done' };
         this.planPersistence.updatePlan(session.id, plan, 'running');
@@ -336,12 +379,101 @@ function flattenPlanPhases(phases: NonNullable<ThunderPlan['phases']>): ThunderP
         title: step.title,
         status: 'pending',
         phase: normalizedPhase,
+        objective: step.objective ?? phase.objective,
+        tools: normalizeStringArray(step.tools),
+        successCriteria: normalizeStringArray(step.successCriteria),
         files: step.files,
         risk: step.risk ?? 'medium',
       });
     }
   }
   return steps;
+}
+
+function parseGeneratedPlan(response: string): ThunderPlan | null {
+  const jsonMatch =
+    response.match(/```json\s*([\s\S]*?)\s*```/) ??
+    response.match(/\{[\s\S]*"(?:phases|steps)"[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  try {
+    const raw = jsonMatch[1] ?? jsonMatch[0];
+    const parsed = JSON.parse(raw) as ThunderPlan;
+    if (parsed.goal && Array.isArray(parsed.phases)) {
+      parsed.steps = flattenPlanPhases(parsed.phases);
+    }
+    if (parsed.goal && Array.isArray(parsed.steps)) {
+      parsed.assumptions = Array.isArray(parsed.assumptions) ? parsed.assumptions : [];
+      parsed.requiredApprovals = Array.isArray(parsed.requiredApprovals) ? parsed.requiredApprovals : [];
+      parsed.steps = parsed.steps.map((s, i) => ({
+        ...s,
+        id: s.id ?? `step-${i + 1}`,
+        status: s.status ?? 'pending',
+        phase: normalizePlanPhase(s.phase) ?? inferStepPhase(s.title, i),
+        objective: typeof s.objective === 'string' ? s.objective : undefined,
+        tools: normalizeStringArray(s.tools),
+        successCriteria: normalizeStringArray(s.successCriteria),
+        files: normalizeStringArray(s.files),
+        risk: normalizeRisk(s.risk),
+      }));
+      return parsed;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function validatePlanQuality(plan: ThunderPlan, taskAnalysis?: TaskAnalysis): string[] {
+  const issues: string[] = [];
+  const stepCount = plan.steps.length;
+  const phases = new Set(plan.steps.map((step) => step.phase).filter(Boolean));
+
+  if (stepCount < 1) issues.push('Plan must contain at least one step.');
+
+  if (taskAnalysis?.kind === 'audit') {
+    if (stepCount < 8) issues.push('Audit/cleanup plans must contain at least 8 granular steps.');
+    for (const phase of ['diagnostics', 'review', 'execute', 'verify'] as const) {
+      if (!phases.has(phase)) issues.push(`Audit/cleanup plans must include a ${phase} phase.`);
+    }
+  } else if (taskAnalysis?.complexity === 'high' && stepCount < 4) {
+    issues.push('High-complexity plans must contain at least 4 steps.');
+  } else if (taskAnalysis?.shouldPlan && stepCount < 2) {
+    issues.push('Planned tasks must contain at least 2 steps.');
+  }
+
+  const vagueSteps = plan.steps.filter((step) => step.title.trim().split(/\s+/).length < 3);
+  if (vagueSteps.length > 0) {
+    issues.push(`Step titles are too vague: ${vagueSteps.map((step) => step.id).join(', ')}.`);
+  }
+
+  const missingExecutionDetail = plan.steps.filter(
+    (step) => !step.objective || !step.tools?.length || !step.successCriteria?.length
+  );
+  if (taskAnalysis?.kind === 'audit' && missingExecutionDetail.length > 0) {
+    issues.push(`Audit steps must include objective, tools, and successCriteria: ${missingExecutionDetail.map((step) => step.id).join(', ')}.`);
+  }
+
+  return issues;
+}
+
+function normalizeRisk(risk: unknown): 'low' | 'medium' | 'high' {
+  if (risk === 'low' || risk === 'medium' || risk === 'high') return risk;
+  return 'medium';
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function summarizeStepOutput(output: string, title: string): string {
+  const trimmed = output.trim();
+  if (!trimmed) return `Completed: ${title}`;
+  const summaryMatch = trimmed.match(/(?:summary|result|completed)[:\s]+([\s\S]{80,4000})$/i);
+  const summary = summaryMatch?.[1]?.trim() ?? trimmed.slice(-2500).trim();
+  return summary.length > 3000 ? summary.slice(-3000).trim() : summary;
 }
 
 function normalizePlanPhase(phase: unknown): PlanPhase | undefined {
@@ -369,3 +501,20 @@ function inferPhaseFromTitle(title: string): PlanPhase {
 
 // Re-export for backward compatibility
 export { shouldDecomposeTask } from './TaskAnalyzer';
+
+const PLANNING_DISCOVERY_TOOLS = new Set([
+  'read_file',
+  'read_files',
+  'list_files',
+  'search',
+  'search_batch',
+  'search_script_catalog',
+  'use_skill',
+  'repo_map',
+  'retrieve_context',
+  'git_diff',
+  'diagnostics',
+  'memory_search',
+  'run_command',
+  'spawn_research_agent',
+]);

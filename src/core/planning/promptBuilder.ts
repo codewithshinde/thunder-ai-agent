@@ -29,6 +29,14 @@ AUDIT / CLEANUP MODE:
 4. Report with confidence: high (safe to remove), medium (likely unused), low (needs review).
 5. In Plan/Review mode: report only — do NOT delete files or edit package.json until user confirms.`;
 
+const PLANNING_DISCOVERY_GUIDANCE = `
+READ-ONLY PLANNING DISCOVERY TOOLS:
+- Use read_file/read_files/search/search_batch/list_files/repo_map/retrieve_context to inspect the codebase.
+- Use diagnostics, git_diff, memory_search, and search_script_catalog when relevant.
+- Use spawn_research_agent for parallel read-only research on independent questions.
+- Use run_command only for read-only inspection commands such as rg, find, git status, depcheck, lint/test/typecheck checks.
+- Do NOT call write_file, apply_patch, memory_write, save_task_state, or execute_workspace_script during planning discovery.`;
+
 export function buildSystemPrompt(
   mode: ThunderMode,
   toolsEnabled = false,
@@ -155,12 +163,25 @@ export function buildPlanGenerationPrompt(
   mode: ThunderMode,
   contextPack: ContextPack,
   userMessage: string,
-  requirementAnalysis?: string
+  requirementAnalysis?: string,
+  planningDiscovery?: string,
+  task?: { kind: string; complexity: string }
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
   const analysisBlock = requirementAnalysis
     ? `\n\n## Requirement analysis\n${requirementAnalysis}`
     : '';
+  const discoveryBlock = planningDiscovery
+    ? `\n\n## Tool-assisted planning discovery\n${planningDiscovery}`
+    : '';
+  const isAudit = task?.kind === 'audit';
+  const highComplexity = task?.complexity === 'high';
+  const stepGuidance = isAudit
+    ? 'Audit/cleanup tasks need 8-15 granular steps. Include separate diagnostics for dependencies, source files, static assets, import/export references, review/cross-check, execution batches, and verification.'
+    : highComplexity
+      ? 'High-complexity tasks need 8-12 granular steps when that improves execution quality. Simpler high-confidence changes may use fewer.'
+      : 'Use 2-6 steps for simple tasks and 4-8 steps for medium tasks.';
+  const auditGuidance = isAudit ? `\n\n${AUDIT_GUIDANCE}` : '';
 
   return [
     {
@@ -172,7 +193,9 @@ Process:
 2. Output phases in this exact order when relevant: Phase 1 Diagnostics, Phase 2 Review, Phase 3 Execute, Phase 4 Verify.
 3. Phase 1 and Phase 2 are read-only. Phase 3 is the first phase where write_file/apply_patch/package edits are allowed.
 4. Include a final verification phase if tests or lint are relevant.
-4. Be specific with file paths from context.
+5. Be specific with file paths from context and tool-assisted discovery.
+6. Every step must include objective, tools, successCriteria, files, and risk.
+7. ${stepGuidance}${auditGuidance}
 
 Output ONLY a JSON code block with a phases JSON array. Do not output prose:
 \`\`\`json
@@ -186,7 +209,15 @@ Output ONLY a JSON code block with a phases JSON array. Do not output prose:
       "phase": "diagnostics",
       "objective": "read-only discovery",
       "steps": [
-        { "id": "step-1", "title": "...", "files": ["path"], "risk": "low|medium|high" }
+        {
+          "id": "step-1",
+          "title": "...",
+          "objective": "specific outcome for this step",
+          "tools": ["read_file", "search_batch"],
+          "successCriteria": ["observable completion condition"],
+          "files": ["path"],
+          "risk": "low|medium|high"
+        }
       ]
     },
     {
@@ -195,7 +226,7 @@ Output ONLY a JSON code block with a phases JSON array. Do not output prose:
       "phase": "review",
       "objective": "cross-check findings and decide edits",
       "steps": [
-        { "id": "step-2", "title": "...", "files": ["path"], "risk": "low|medium|high" }
+        { "id": "step-2", "title": "...", "objective": "...", "tools": ["..."], "successCriteria": ["..."], "files": ["path"], "risk": "low|medium|high" }
       ]
     },
     {
@@ -204,7 +235,7 @@ Output ONLY a JSON code block with a phases JSON array. Do not output prose:
       "phase": "execute",
       "objective": "make approved code changes",
       "steps": [
-        { "id": "step-3", "title": "...", "files": ["path"], "risk": "low|medium|high" }
+        { "id": "step-3", "title": "...", "objective": "...", "tools": ["..."], "successCriteria": ["..."], "files": ["path"], "risk": "low|medium|high" }
       ]
     },
     {
@@ -213,18 +244,57 @@ Output ONLY a JSON code block with a phases JSON array. Do not output prose:
       "phase": "verify",
       "objective": "validate and fix remaining errors",
       "steps": [
-        { "id": "step-4", "title": "...", "files": ["path"], "risk": "low|medium|high" }
+        { "id": "step-4", "title": "...", "objective": "...", "tools": ["..."], "successCriteria": ["..."], "files": ["path"], "risk": "low|medium|high" }
       ]
     }
   ],
   "requiredApprovals": []
 }
 \`\`\`
-Mode: ${mode}. Use 3-8 steps for complex tasks, 2-4 for simpler ones.`,
+Mode: ${mode}.`,
     },
     {
       role: 'user',
-      content: `## Context\n${contextBlock}${analysisBlock}\n\n## Task\n${userMessage}\n\nGenerate the plan JSON.`,
+      content: `## Context\n${contextBlock}${analysisBlock}${discoveryBlock}\n\n## Task\n${userMessage}\n\nGenerate the plan JSON.`,
+    },
+  ];
+}
+
+export function buildPlanningDiscoveryPrompt(
+  mode: ThunderMode,
+  contextPack: ContextPack,
+  userMessage: string,
+  analysis: { kind: string; complexity: string; summary: string }
+): ChatMessage[] {
+  const contextBlock = contextPack.formatted ?? '(no context)';
+  const auditGuidance = analysis.kind === 'audit' ? `\n\n${AUDIT_GUIDANCE}` : '';
+
+  return [
+    {
+      role: 'system',
+      content: `You are doing read-only discovery before a plan is generated.
+
+${PLANNING_DISCOVERY_GUIDANCE}${auditGuidance}
+
+Rules:
+- You are in ${mode.toUpperCase()} mode discovery. Do NOT write files, patch files, or edit package manifests.
+- Use tools to fill gaps in the provided context before planning.
+- Prefer batched reads/searches and parallel research subagents when useful.
+- For audit/cleanup tasks, inspect package manifests and repo shape before finalizing findings.
+- Finish with a concise "DISCOVERY_SUMMARY" containing facts, relevant files, risks, and verification commands.`,
+    },
+    {
+      role: 'user',
+      content: `Task kind: ${analysis.kind} (${analysis.complexity})
+${analysis.summary}
+
+## Codebase Context
+${contextBlock}
+
+## User request
+${userMessage}
+
+Run read-only discovery for planning, then output DISCOVERY_SUMMARY.`,
     },
   ];
 }
@@ -276,6 +346,11 @@ export function buildStepPrompt(
   const completed = plan.steps.filter((s) => s.status === 'done').map((s) => s.title);
   const pending = plan.steps.filter((s) => s.status !== 'done').map((s) => s.title);
   const phase = step.phase ? `\nPhase lock: ${step.phase}` : '';
+  const objective = step.objective ? `\nObjective: ${step.objective}` : '';
+  const tools = step.tools?.length ? `\nExpected tools: ${step.tools.join(', ')}` : '';
+  const successCriteria = step.successCriteria?.length
+    ? `\nSuccess criteria:\n${step.successCriteria.map((criterion) => `- ${criterion}`).join('\n')}`
+    : '';
 
   const priorBlock =
     priorSummaries.length > 0
@@ -298,7 +373,7 @@ ${completed.length ? completed.map((s) => `- ${s}`).join('\n') : '(none)'}
 ${pending.map((s) => `- ${s}`).join('\n')}
 
 ## Current step (execute NOW)
-**${step.title}**${step.files?.length ? `\nFiles: ${step.files.join(', ')}` : ''}${phase}
+**${step.title}**${objective}${step.files?.length ? `\nFiles: ${step.files.join(', ')}` : ''}${tools}${successCriteria}${phase}
 Risk: ${step.risk}
 
 ## Codebase Context
@@ -318,6 +393,10 @@ export function buildStepRetryPrompt(
   validationErrors: string[]
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
+  const objective = step.objective ? `\nObjective: ${step.objective}` : '';
+  const successCriteria = step.successCriteria?.length
+    ? `\nSuccess criteria:\n${step.successCriteria.map((criterion) => `- ${criterion}`).join('\n')}`
+    : '';
 
   return [
     {
@@ -332,7 +411,7 @@ export function buildStepRetryPrompt(
 ${priorSummaries.map((s) => `- ${s}`).join('\n')}
 
 ## RETRY — fix validation errors from previous attempt
-**${step.title}**${step.files?.length ? `\nFiles: ${step.files.join(', ')}` : ''}
+**${step.title}**${objective}${step.files?.length ? `\nFiles: ${step.files.join(', ')}` : ''}${successCriteria}
 ${step.phase ? `Phase lock: ${step.phase}\n` : ''}
 
 ### Errors to fix
