@@ -13,7 +13,11 @@ Rules:
 - Complete in ≤4 tool rounds. Be fast and focused.
 - Batch reads/searches in parallel when possible.
 - Return a concise report (max 400 words): findings, file paths, confidence (high/medium/low).
-- Do NOT edit files. Do NOT explore unrelated areas.`;
+- Do NOT edit files. Do NOT explore unrelated areas.
+
+NEVER enumerate npm dependencies via search/read_file loops — the main agent must use
+execute_workspace_script (audit-dependencies.mjs / audit-dead-code.sh) for that.
+If your task is to check unused dependencies, refuse and tell the main agent to run scripts.`;
 
 const READ_ONLY_TOOL_NAMES = new Set([
   'read_file',

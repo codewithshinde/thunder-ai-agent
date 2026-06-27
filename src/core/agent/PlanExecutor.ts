@@ -15,7 +15,10 @@ import {
   buildPlanningDiscoveryPrompt,
   buildStepRetryPrompt,
   buildFinalValidationPrompt,
+  buildIsolatedPlanPrompt,
 } from '../planning/promptBuilder';
+import { PlanFileStore } from '../planning/PlanFileStore';
+import { applyDependencyLocks, getNextExecutableStep, PLANNING_DISCOVERY_TOOLS } from '../tools/planTools';
 import { createLogger } from '../telemetry/Logger';
 
 const log = createLogger('PlanExecutor');
@@ -27,6 +30,8 @@ export interface PlanExecutorOptions {
   finalValidationEnabled?: boolean;
   agentMaxSteps?: number;
   restrictRunCommandToReadOnly?: boolean;
+  workspace?: string;
+  useIsolatedPlanning?: boolean;
 }
 
 export interface StepExecutionResult {
@@ -89,7 +94,9 @@ export class PlanExecutor {
     userMessage: string,
     requirementAnalysis?: string,
     planningDiscovery?: string,
-    taskAnalysis?: TaskAnalysis
+    taskAnalysis?: TaskAnalysis,
+    sessionId?: string,
+    options?: PlanExecutorOptions
   ): Promise<ThunderPlan | null> {
     let repairNotes = '';
 
@@ -97,14 +104,17 @@ export class PlanExecutor {
       const effectiveAnalysis = repairNotes
         ? `${requirementAnalysis ?? ''}\n\n## Previous plan was rejected\n${repairNotes}\nRegenerate a valid, more specific plan.`
         : requirementAnalysis;
-      const messages = buildPlanGenerationPrompt(
-        mode,
-        pack,
-        userMessage,
-        effectiveAnalysis,
-        planningDiscovery,
-        taskAnalysis
-      );
+
+      const messages = options?.useIsolatedPlanning
+        ? buildIsolatedPlanPrompt(mode, pack, userMessage, effectiveAnalysis, taskAnalysis)
+        : buildPlanGenerationPrompt(
+            mode,
+            pack,
+            userMessage,
+            effectiveAnalysis,
+            planningDiscovery,
+            taskAnalysis
+          );
       let response = '';
 
       for await (const delta of provider.complete({ messages, stream: false })) {
@@ -120,6 +130,11 @@ export class PlanExecutor {
 
       const issues = validatePlanQuality(plan, taskAnalysis);
       if (issues.length === 0) {
+        applyDependencyLocks(plan);
+        if (sessionId && options?.workspace) {
+          const fileStore = new PlanFileStore(options.workspace, sessionId);
+          fileStore.save(plan, 'planning');
+        }
         return plan;
       }
 
@@ -184,11 +199,20 @@ export class PlanExecutor {
     this.planPersistence.save(session.id, plan, 'running');
     onPlanUpdate?.(plan);
 
+    if (options?.workspace) {
+      const fileStore = new PlanFileStore(options.workspace, session.id);
+      fileStore.save(plan, 'running');
+    }
+
+    applyDependencyLocks(plan);
+
     for (let i = 0; i < plan.steps.length; i++) {
       if (signal?.aborted) break;
 
-      const step = plan.steps[i];
-      if (step.status === 'done') continue;
+      const step = getNextExecutableStep(plan) ?? plan.steps[i];
+      const stepIndex = plan.steps.findIndex((s) => s.id === step.id);
+      if (stepIndex < 0 || step.status === 'done') continue;
+      i = stepIndex;
 
       let attempt = 0;
       let stepSucceeded = false;
@@ -223,6 +247,7 @@ export class PlanExecutor {
             maxSteps: options?.agentMaxSteps,
             phaseLock: step.phase,
             restrictRunCommandToReadOnly: options?.restrictRunCommandToReadOnly,
+            planTracker: plan,
           }
         )) {
           yield chunk;
@@ -261,6 +286,9 @@ export class PlanExecutor {
         this.stepSummaries.push(`Step ${i + 1} (${step.title}): ${summary}`);
         plan.steps[i] = { ...plan.steps[i], status: 'done' };
         this.planPersistence.updatePlan(session.id, plan, 'running');
+        if (options?.workspace) {
+          new PlanFileStore(options.workspace, session.id).markStepComplete(step.id);
+        }
         onPlanUpdate?.(plan);
       }
     }
@@ -380,6 +408,9 @@ function flattenPlanPhases(phases: NonNullable<ThunderPlan['phases']>): ThunderP
         status: 'pending',
         phase: normalizedPhase,
         objective: step.objective ?? phase.objective,
+        tool: step.tool,
+        args: step.args,
+        dependsOn: step.dependsOn,
         tools: normalizeStringArray(step.tools),
         successCriteria: normalizeStringArray(step.successCriteria),
         files: step.files,
@@ -411,11 +442,15 @@ function parseGeneratedPlan(response: string): ThunderPlan | null {
         status: s.status ?? 'pending',
         phase: normalizePlanPhase(s.phase) ?? inferStepPhase(s.title, i),
         objective: typeof s.objective === 'string' ? s.objective : undefined,
+        tool: typeof s.tool === 'string' ? s.tool : undefined,
+        args: typeof s.args === 'object' && s.args !== null ? s.args as Record<string, unknown> : undefined,
+        dependsOn: normalizeStringArray(s.dependsOn),
         tools: normalizeStringArray(s.tools),
         successCriteria: normalizeStringArray(s.successCriteria),
         files: normalizeStringArray(s.files),
         risk: normalizeRisk(s.risk),
       }));
+      applyDependencyLocks(parsed);
       return parsed;
     }
   } catch {
@@ -501,20 +536,4 @@ function inferPhaseFromTitle(title: string): PlanPhase {
 
 // Re-export for backward compatibility
 export { shouldDecomposeTask } from './TaskAnalyzer';
-
-const PLANNING_DISCOVERY_TOOLS = new Set([
-  'read_file',
-  'read_files',
-  'list_files',
-  'search',
-  'search_batch',
-  'search_script_catalog',
-  'use_skill',
-  'repo_map',
-  'retrieve_context',
-  'git_diff',
-  'diagnostics',
-  'memory_search',
-  'run_command',
-  'spawn_research_agent',
-]);
+export { PLANNING_DISCOVERY_TOOLS } from '../tools/planTools';

@@ -427,6 +427,60 @@ describe('TaskAnalyzer', () => {
     );
     expect(result.kind).toBe('audit');
     expect(result.shouldPlan).toBe(true);
+    expect(result.shouldUseSubagents).toBe(false);
+  });
+});
+
+describe('auditRouting', () => {
+  it('detects dependency enumeration subagent tasks', async () => {
+    const { isDependencyEnumerationTask, estimateSubagentAuditSeconds, estimateScriptAuditSeconds } =
+      await import('../src/core/agent/auditRouting');
+    expect(isDependencyEnumerationTask('Check each of the 64 npm dependencies for usage')).toBe(true);
+    expect(isDependencyEnumerationTask('Find unused dependencies in package.json')).toBe(true);
+    expect(isDependencyEnumerationTask('Map the src folder structure')).toBe(false);
+    expect(estimateSubagentAuditSeconds(64)).toBeGreaterThan(60);
+    expect(estimateScriptAuditSeconds()).toBeLessThan(10);
+  });
+
+  it('blocks spawn_research_agent for dependency audits', async () => {
+    const { createSpawnResearchAgentTool } = await import('../src/core/tools/builtinTools');
+    const tool = createSpawnResearchAgentTool();
+    const result = await tool.execute({
+      task: 'Check all unused npm dependencies listed in package.json (18 prod, 46 dev)',
+    });
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('audit-dependencies.mjs');
+    expect(result.output.toLowerCase()).toContain('subagent blocked');
+  });
+
+  it('blocks spawn_research_agent for unused imports audit', async () => {
+    const { createSpawnResearchAgentTool } = await import('../src/core/tools/builtinTools');
+    const tool = createSpawnResearchAgentTool();
+    const result = await tool.execute({
+      task: 'Audit unused imports within source files. Look at each .ts file and identify imports never used.',
+      focus: 'unused imports within source files',
+    });
+    expect(result.success).toBe(true);
+    expect(result.output).toContain('execute_workspace_script');
+  });
+
+  it('blocks Audit unused npm dependencies task from log', async () => {
+    const { isDependencyEnumerationTask } = await import('../src/core/agent/auditRouting');
+    const task =
+      'Audit unused npm dependencies in this project. For each dependency in package.json, search whether it is actually imported';
+    expect(isDependencyEnumerationTask(task)).toBe(true);
+  });
+});
+
+describe('shouldUsePlanner', () => {
+  it('skips planner for audit tasks in act mode', async () => {
+    const { shouldUsePlanner } = await import('../src/core/ChatOrchestrator');
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const analysis = analyzeTask('remove unused imports and dependencies', 'act');
+    expect(analysis.kind).toBe('audit');
+    expect(shouldUsePlanner('act', analysis, true, true)).toBe(false);
+    expect(shouldUsePlanner('act', analysis, true, false)).toBe(true);
+    expect(shouldUsePlanner('plan', analysis, true, true)).toBe(true);
   });
 });
 

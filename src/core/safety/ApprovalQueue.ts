@@ -14,6 +14,9 @@ export interface ApprovalRequest {
   createdAt: number;
   contentLength?: number;
   toolCallId?: string;
+  kind?: 'approval' | 'question';
+  question?: string;
+  options?: string[];
 }
 
 export type ApprovalDecision = 'approved' | 'denied';
@@ -47,6 +50,11 @@ export class ApprovalQueue {
       createdAt: Date.now(),
       contentLength: contentLen,
       toolCallId: metadata?.toolCallId,
+      kind: toolName === 'ask_question' ? 'question' : 'approval',
+      question: toolName === 'ask_question' && typeof input.question === 'string' ? input.question : undefined,
+      options: toolName === 'ask_question' && Array.isArray(input.options)
+        ? input.options.filter((o): o is string => typeof o === 'string')
+        : undefined,
     };
 
     this.pending.set(request.id, request);
@@ -103,6 +111,13 @@ export class ApprovalQueue {
 }
 
 function buildDisplayPreview(toolName: string, input: Record<string, unknown>): string {
+  if (toolName === 'ask_question' && typeof input.question === 'string') {
+    const opts = Array.isArray(input.options) ? input.options.filter((o): o is string => typeof o === 'string') : [];
+    return `${input.question}${opts.length ? `\nOptions: ${opts.join(' | ')}` : ''}`;
+  }
+  if (toolName === 'fetch_web' && typeof input.url === 'string') {
+    return `Fetch: ${input.url}`;
+  }
   if (toolName === 'write_file' && typeof input.path === 'string') {
     const len = typeof input.content === 'string' ? input.content.length : 0;
     return `Write file: ${input.path} (${len.toLocaleString()} characters)`;

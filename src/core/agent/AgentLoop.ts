@@ -3,7 +3,8 @@ import type { ToolDefinition, ToolCall } from '../llm/toolTypes';
 import type { ToolExecutor } from '../safety/ToolExecutor';
 import { formatToolResult } from '../tools/builtinTools';
 import { NO_TOOLS_AUDIT_NUDGE } from './taskKind';
-import type { PlanPhase } from '../planning/PlanActEngine';
+import type { PlanPhase, ThunderPlan } from '../planning/PlanActEngine';
+import { buildPlanTrackerPacket } from '../planning/PlanFileStore';
 import { createLogger } from '../telemetry/Logger';
 
 const log = createLogger('AgentLoop');
@@ -23,6 +24,8 @@ export interface AgentLoopOptions {
   maxAutoContinues?: number;
   phaseLock?: PlanPhase;
   restrictRunCommandToReadOnly?: boolean;
+  /** Active plan for state-invariant sync — injects locked MASTER PLAN TRACKER header. */
+  planTracker?: ThunderPlan;
 }
 
 export interface AgentLoopSuspendState {
@@ -94,6 +97,8 @@ export class AgentLoop {
       if (signal?.aborted) break;
       const displayStep = ((step % maxSteps) + 1);
       callbacks?.onStep?.(displayStep, maxSteps);
+
+      injectPlanTracker(messages, options?.planTracker);
 
       let stepContent = '';
       const toolCallsMap = new Map<number, ToolCall>();
@@ -331,6 +336,8 @@ export class AgentLoop {
       if (signal?.aborted) break;
       const displayStep = ((step % maxSteps) + 1);
       callbacks?.onStep?.(displayStep, maxSteps);
+
+      injectPlanTracker(messages, options.planTracker);
 
       let stepContent = '';
       const toolCallsMap = new Map<number, ToolCall>();
@@ -644,6 +651,27 @@ async function createApprovalCheckpoint(
   }
 
   return response.trim().slice(0, 1200) || undefined;
+}
+
+function injectPlanTracker(messages: ChatMessage[], plan?: ThunderPlan): void {
+  if (!plan) return;
+
+  const trackerContent = buildPlanTrackerPacket(plan);
+  const marker = '[MASTER PLAN TRACKER';
+  const existingIdx = messages.findIndex(
+    (m) => m.role === 'system' && typeof m.content === 'string' && m.content.includes(marker)
+  );
+
+  if (existingIdx >= 0) {
+    messages[existingIdx] = { role: 'system', content: trackerContent };
+  } else {
+    const systemIdx = messages.findIndex((m) => m.role === 'system');
+    if (systemIdx >= 0) {
+      messages.splice(systemIdx + 1, 0, { role: 'system', content: trackerContent });
+    } else {
+      messages.unshift({ role: 'system', content: trackerContent });
+    }
+  }
 }
 
 function injectWakeUpCheckpoint(messages: ChatMessage[], checkpoint: string): void {

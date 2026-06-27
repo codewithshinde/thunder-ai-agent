@@ -11,6 +11,9 @@ export type ThunderPlan = {
       title: string;
       objective?: string;
       tools?: string[];
+      tool?: string;
+      args?: Record<string, unknown>;
+      dependsOn?: string[];
       successCriteria?: string[];
       files?: string[];
       risk: 'low' | 'medium' | 'high';
@@ -19,10 +22,13 @@ export type ThunderPlan = {
   steps: Array<{
     id: string;
     title: string;
-    status: 'pending' | 'running' | 'done' | 'blocked' | 'failed';
+    status: 'pending' | 'running' | 'done' | 'blocked' | 'failed' | 'blocked_by_dependency';
     phase?: PlanPhase;
     objective?: string;
     tools?: string[];
+    tool?: string;
+    args?: Record<string, unknown>;
+    dependsOn?: string[];
     successCriteria?: string[];
     files?: string[];
     risk: 'low' | 'medium' | 'high';
@@ -48,6 +54,9 @@ export function parsePlanFromText(text: string): ThunderPlan | null {
           status: 'pending' as const,
           phase: phase.phase,
           objective: step.objective ?? phase.objective,
+          tool: step.tool,
+          args: step.args,
+          dependsOn: step.dependsOn,
           tools: step.tools,
           successCriteria: step.successCriteria,
           files: step.files,
@@ -80,7 +89,8 @@ export function isReadOnlyCommand(command: string): boolean {
 }
 
 function isReadOnlyCommandSegment(cmd: string): boolean {
-  if (/^(npx\s+)?depcheck\b/i.test(cmd)) return true;
+  if (/^(npx\s+(--yes\s+)?)?depcheck\b/i.test(cmd)) return true;
+  if (/^(npx\s+(--yes\s+)?)?knip\b/i.test(cmd)) return true;
   if (/^npx\s+eslint\b/i.test(cmd) && !/\s--fix\b/.test(cmd)) return true;
   if (/^npm\s+(ls|list|outdated|audit|run\s+(lint|test|typecheck|check))\b/i.test(cmd)) return true;
   if (/^yarn\s+(why|list|info|lint|test|build)\b/i.test(cmd)) return true;

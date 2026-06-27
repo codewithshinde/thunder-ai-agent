@@ -3,6 +3,7 @@ import type { ThunderDb } from './ThunderDb';
 import { ChunkingService } from './ChunkingService';
 import { FtsIndex } from './FtsIndex';
 import { getExtractor, extractSymbolRefs } from './SymbolExtractor';
+import { extractImports, resolveImportTarget } from './ImportExtractor';
 import { createLogger } from '../telemetry/Logger';
 
 import type { VectorIndexService } from './VectorIndex';
@@ -107,6 +108,7 @@ export class IndexQueue {
       this.db.raw.prepare('DELETE FROM chunks WHERE file_id = ?').run(job.fileId);
       this.db.raw.prepare('DELETE FROM symbols WHERE file_id = ?').run(job.fileId);
       this.db.raw.prepare('DELETE FROM symbol_refs WHERE file_id = ?').run(job.fileId);
+      this.db.raw.prepare('DELETE FROM file_imports WHERE from_file_id = ?').run(job.fileId);
       this.fts.deleteByFile(job.relPath);
 
       const insertChunk = this.db.raw.prepare(`
@@ -148,6 +150,17 @@ export class IndexQueue {
         );
         for (const ref of refs) {
           insertRef.run(job.fileId, ref.name, ref.line);
+        }
+      }
+
+      const imports = extractImports(content);
+      const insertImport = this.db.raw.prepare(
+        'INSERT INTO file_imports (from_file_id, to_rel_path, specifier, line) VALUES (?, ?, ?, ?)'
+      );
+      for (const imp of imports) {
+        const target = resolveImportTarget(job.relPath, imp.specifier);
+        if (target) {
+          insertImport.run(job.fileId, target, imp.specifier, imp.line);
         }
       }
 

@@ -46,7 +46,14 @@ export class AgentTaskState {
 
     if (toolName === 'run_command') {
       const key = toolKey(toolName, input);
-      if ((key === 'depcheck' || key === 'eslint') && this.phase === 'analyze') {
+      if ((key === 'depcheck' || key === 'eslint' || key === 'audit-dependencies' || key === 'audit-dead-code') && this.phase === 'analyze') {
+        this.phase = 'execute';
+      }
+    }
+
+    if (toolName === 'execute_workspace_script') {
+      const script = typeof input.script === 'string' ? input.script : '';
+      if (/audit-dependencies|audit-dead-code/.test(script) && this.phase === 'analyze') {
         this.phase = 'execute';
       }
     }
@@ -86,6 +93,17 @@ export class AgentTaskState {
       return (
         `Phase 1 (Analyze) already completed: ${key} was run successfully. ` +
         'Do NOT re-run diagnostics. Read chat history and proceed to Phase 2 (Execute): edit files and update package.json.'
+      );
+    }
+
+    if (toolName === 'execute_workspace_script') {
+      const script = typeof input.script === 'string' ? input.script : key;
+      if (this.phase === 'execute') {
+        return `Script ${script} already completed. Use write_file or apply_patch to apply findings.`;
+      }
+      return (
+        `Script ${script} already ran this session. ` +
+        'Read cached output from chat history. Proceed to Phase 2 (Execute).'
       );
     }
 
@@ -213,6 +231,12 @@ export function toolKey(toolName: string, input: Record<string, unknown>): strin
   if (toolName === 'read_file' && typeof input.path === 'string') {
     return `read_file:${input.path}`;
   }
+  if (toolName === 'execute_workspace_script' && typeof input.script === 'string') {
+    return `script:${input.script}`;
+  }
+  if (toolName === 'spawn_research_agent' && typeof input.task === 'string') {
+    return `research:${input.task.slice(0, 80)}`;
+  }
   return null;
 }
 
@@ -220,6 +244,8 @@ export function normalizeDiagnosticKey(command: string): string | null {
   const cmd = command.trim().toLowerCase();
   if (!cmd) return null;
   if (/\bdepcheck\b/.test(cmd)) return 'depcheck';
+  if (/\bknip\b/.test(cmd)) return 'audit-dead-code';
+  if (/audit-dependencies/.test(cmd)) return 'audit-dependencies';
   if (/\beslint\b/.test(cmd)) return cmd.includes('--fix') ? 'eslint:fix' : 'eslint';
   if (/\bnpm\s+(ls|list)\b/.test(cmd)) return 'npm-ls';
   if (/\bgrep\b|\brg\b/.test(cmd)) return 'grep/rg';

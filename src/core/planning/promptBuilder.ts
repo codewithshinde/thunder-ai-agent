@@ -3,39 +3,44 @@ import type { ChatMessage } from '../llm/types';
 import type { ThunderMode } from '../ThunderSession';
 import type { ThunderPlan } from './PlanActEngine';
 import { CHAT_HISTORY_GUIDANCE, STATE_MACHINE_GUIDANCE } from '../agent/taskStatePrompt';
+import { buildAuditBootstrapBlock } from '../agent/auditRouting';
 
 const TOOL_GUIDANCE = `
 TOOLS: You have tools to read files, search code, run commands, write files, and manage memory.
 - Use read_file/read_files/search/search_batch/list_files to gather information before editing.
 - Tools named mcp__server__tool come from configured MCP servers. Treat them as external tools; inspect their names and arguments carefully.
-- Batch independent reads and searches in ONE turn (read_files, search_batch, parallel spawn_research_agent).
-- For large target file arrays, split into chunks of 5-10 files and spawn multiple research agents in one turn.
-- Use spawn_research_agent to delegate focused research (unused deps, orphan files, static assets) — spawn multiple for parallel analysis and pass persona_instructions when a specialized reviewer helps.
+- Batch independent reads and searches in ONE turn (read_files, search_batch).
+- For audit/cleanup: use execute_workspace_script (audit-dependencies.mjs, audit-dead-code.sh) — NEVER spawn_research_agent for unused deps/imports/files.
 - Prefer execute_workspace_script for known repo scripts (knip, depcheck, safe lint, checkpoint read/write). Search with search_script_catalog first if needed.
 - Prefer apply_patch for small targeted changes; use write_file for new files or full rewrites.
 - Use run_command only for read-only inspection or project verification. During audit/cleanup tasks, use execute_workspace_script instead of hand-written shell.
 - Use use_skill to load a specific workspace skill playbook when the task matches one.
 - Use memory_search only as a fallback when chat history lacks needed facts.
 - Use save_task_state or memory_write to persist progress BEFORE pausing for approval (required).
+- Use ask_question when a key decision is ambiguous — provide 2-5 options to reduce wrong-direction work.
+- Use fetch_web for external docs, API references, or debugging when local context is insufficient.
+- Use mark_step_complete when finishing a plan step; use propose_plan_mutation if you hit a major roadblock.
 - In Act mode, you may call write_file/apply_patch/run_command tools directly.
 - If a tool returns "awaiting approval", stop and inform the user.
 - NEVER say "I will search…" without calling tools in the same turn.`;
 
 const AUDIT_GUIDANCE = `
-AUDIT / CLEANUP MODE:
-1. Read package.json first, then map src/ with list_files(recursive:true).
-2. Spawn parallel research subagents for: (a) unused npm deps, (b) unused source files, (c) unused static assets.
-3. Cross-check with search_batch / run_command (depcheck, rg) before recommending removal.
-4. Report with confidence: high (safe to remove), medium (likely unused), low (needs review).
-5. In Plan/Review mode: report only — do NOT delete files or edit package.json until user confirms.`;
+AUDIT / CLEANUP MODE — SCRIPT-FIRST (avoid 60–120s subagent black holes):
+1. **First turn**: execute_workspace_script("audit-dependencies.mjs") — depcheck scans ALL npm deps via AST in ~0.5s.
+2. **Second turn**: execute_workspace_script("audit-dead-code.sh") — knip finds unused files/exports/deps in one pass.
+3. read_file package.json only if scripts fail.
+4. NEVER spawn_research_agent to grep each dependency (64 deps × 3s inference = 108s+).
+5. NEVER run search per-package — regex misses comments; AST scripts do not.
+6. Report with confidence: high (safe to remove), medium (likely unused), low (needs review).
+7. In Plan/Review mode: report only — do NOT delete until user confirms.`;
 
 const PLANNING_DISCOVERY_GUIDANCE = `
 READ-ONLY PLANNING DISCOVERY TOOLS:
 - Use read_file/read_files/search/search_batch/list_files/repo_map/retrieve_context to inspect the codebase.
 - Use diagnostics, git_diff, memory_search, and search_script_catalog when relevant.
-- Use spawn_research_agent for parallel read-only research on independent questions.
-- Use run_command only for read-only inspection commands such as rg, find, git status, depcheck, lint/test/typecheck checks.
-- Do NOT call write_file, apply_patch, memory_write, save_task_state, or execute_workspace_script during planning discovery.`;
+- For audit/cleanup: execute_workspace_script (audit-dependencies.mjs, audit-dead-code.sh) — NOT spawn_research_agent.
+- Use run_command only for read-only inspection commands such as rg, find, git status, npx depcheck, npx knip, lint/test/typecheck checks.
+- Do NOT call write_file, apply_patch, memory_write, or save_task_state during planning discovery.`;
 
 export function buildSystemPrompt(
   mode: ThunderMode,
@@ -133,10 +138,15 @@ export function buildPrompt(
     ? `\n\n## Continuation\nThis turn resumes after user approval. Read **Recent conversation** above for tool outputs. Do NOT re-run depcheck/eslint/list_files already marked complete in Task progress. Proceed to Execute phase.\n`
     : '';
 
+  const auditBootstrap =
+    auditMode && mode === 'act' && !isContinuation
+      ? `\n\n${buildAuditBootstrapBlock()}\n`
+      : '';
+
   const userContent = `## Codebase Context
 
 ${contextBlock}
-${taskProgress}${continuationNote}
+${taskProgress}${continuationNote}${auditBootstrap}
 ---
 
 ## User request
@@ -177,7 +187,7 @@ export function buildPlanGenerationPrompt(
   const isAudit = task?.kind === 'audit';
   const highComplexity = task?.complexity === 'high';
   const stepGuidance = isAudit
-    ? 'Audit/cleanup tasks need 8-15 granular steps. Include separate diagnostics for dependencies, source files, static assets, import/export references, review/cross-check, execution batches, and verification.'
+    ? 'Audit/cleanup: Phase 1 MUST use execute_workspace_script (audit-dependencies.mjs, audit-dead-code.sh) — read-only AST scans. Phase 3 Execute creates configs and edits package.json. Do NOT assign file writes to diagnostics phase.'
     : highComplexity
       ? 'High-complexity tasks need 8-12 granular steps when that improves execution quality. Simpler high-confidence changes may use fewer.'
       : 'Use 2-6 steps for simple tasks and 4-8 steps for medium tasks.';
@@ -256,6 +266,71 @@ Mode: ${mode}.`,
     {
       role: 'user',
       content: `## Context\n${contextBlock}${analysisBlock}${discoveryBlock}\n\n## Task\n${userMessage}\n\nGenerate the plan JSON.`,
+    },
+  ];
+}
+
+/** Isolated plan compilation — receives only goal, repo map, and script catalog. No raw file reads. */
+export function buildIsolatedPlanPrompt(
+  mode: ThunderMode,
+  contextPack: ContextPack,
+  userMessage: string,
+  requirementAnalysis?: string,
+  task?: { kind: string; complexity: string }
+): ChatMessage[] {
+  const repoMapItem = contextPack.items.find((i) => i.source === 'repo-map' || i.reason.includes('repo'));
+  const repoMapBlock = repoMapItem?.content ?? '(repo map unavailable — use retrieve_context after execution begins)';
+  const analysisBlock = requirementAnalysis ? `\n\n## Requirement analysis\n${requirementAnalysis}` : '';
+  const isAudit = task?.kind === 'audit';
+
+  return [
+    {
+      role: 'system',
+      content: `You are an isolated plan compiler. You MUST NOT read raw source files — you receive only:
+1. The user's goal
+2. A compressed repo_map
+3. Requirement analysis (if any)
+
+Output a strict JSON DAG plan with dependsOn edges. Each step must declare:
+- id, title, objective, tools (array), successCriteria, files, risk, phase
+- dependsOn: array of step ids that must complete first (empty for root steps)
+- optional tool + args for script-driven steps
+
+${isAudit ? 'Audit tasks need 8+ granular steps across diagnostics/review/execute/verify phases.' : 'Use 2-8 steps based on complexity.'}
+
+Output ONLY a JSON code block:
+\`\`\`json
+{
+  "goal": "...",
+  "assumptions": ["..."],
+  "steps": [
+    {
+      "id": "step_1",
+      "title": "...",
+      "objective": "...",
+      "tools": ["execute_workspace_script"],
+      "dependsOn": [],
+      "successCriteria": ["..."],
+      "files": ["path"],
+      "risk": "low",
+      "phase": "diagnostics"
+    },
+    {
+      "id": "step_2",
+      "title": "...",
+      "dependsOn": ["step_1"],
+      "phase": "execute",
+      "risk": "medium"
+    }
+  ],
+  "requiredApprovals": []
+}
+\`\`\`
+Mode: ${mode}.`,
+    },
+    {
+      role: 'user',
+      content: `## Repo map (compressed)\n${repoMapBlock}${analysisBlock}\n\n## Task\n${userMessage}\n\nCompile the DAG plan JSON.`,
     },
   ];
 }

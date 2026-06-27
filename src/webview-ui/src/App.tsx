@@ -82,7 +82,9 @@ export function App() {
 
       <ApprovalCards
         approvals={state.approvals}
-        onResolve={(id, decision) => postMessage({ type: 'resolveApproval', payload: { id, decision } })}
+        onResolve={(id, decision, selectedOption) =>
+          postMessage({ type: 'resolveApproval', payload: { id, decision, selectedOption } })
+        }
         onApproveAll={() => postMessage({ type: 'approveAllPending' })}
       />
 

@@ -1,4 +1,4 @@
-/** Audit / cleanup / dependency analysis tasks (report-first, tools-heavy). */
+/** Audit / cleanup / dependency analysis tasks (report-first, scripts-first). */
 export function isAuditCleanupTask(text: string): boolean {
   return /\b(unus[a-z]*|dead code|orphan|cleanup|clean up|remove\s+(?:all\s+)?(?:the\s+)?(?:(?:uns[a-z]*|unused)\s+)?(?:imports?|files?|dependenc(?:y|ies)?)|depcheck|dependencies audit|dependency audit|find unused|list unused|reduce bundle|tree[- ]shake)\b/i.test(
     text
@@ -7,11 +7,11 @@ export function isAuditCleanupTask(text: string): boolean {
 
 export const AUDIT_AGENT_MAX_STEPS = 30;
 
-export const NO_TOOLS_AUDIT_NUDGE = `You responded without calling any tools. For audit/cleanup tasks you MUST use tools now:
-- read_file / read_files for package.json and key entry points
-- list_files (recursive) to map src/
-- search / search_batch to check imports per dependency or file
-- spawn_research_agent to parallelize large analyses (deps, unused files, static assets)
-- run_command for depcheck, npm ls, ripgrep (read-only)
+export const NO_TOOLS_AUDIT_NUDGE = `You responded without calling any tools. For audit/cleanup tasks you MUST use tools now — scripts first, NOT subagents for dependencies:
 
-Do not describe what you will do — call the tools in this turn.`;
+1. execute_workspace_script({ script: "audit-dependencies.mjs" }) — checks ALL npm deps via depcheck in one pass (~3s)
+2. execute_workspace_script({ script: "audit-dead-code.sh" }) — knip: unused files, deps, exports
+3. read_file for package.json only if scripts are unavailable
+
+Do NOT spawn_research_agent to search each dependency. Do NOT run 20+ search queries.
+Call execute_workspace_script in this turn.`;

@@ -18,6 +18,7 @@ const READ_ONLY_TOOLS = new Set([
   'read_file', 'read_files', 'list_files', 'search', 'search_batch', 'repo_map',
   'retrieve_context', 'git_diff', 'diagnostics', 'memory_search', 'spawn_research_agent',
   'save_task_state', 'search_script_catalog', 'execute_workspace_script', 'use_skill',
+  'fetch_web', 'ask_question', 'mark_step_complete', 'propose_plan_mutation',
 ]);
 
 const WRITE_TOOLS = new Set(['write_file', 'apply_patch', 'memory_write']);
@@ -44,6 +45,12 @@ export class ToolPolicyEngine {
     }
 
     if (READ_ONLY_TOOLS.has(toolName)) {
+      if (toolName === 'fetch_web' && !this.safetyConfig.allowNetwork) {
+        return { decision: 'block', reason: 'Network access disabled' };
+      }
+      if (toolName === 'ask_question') {
+        return { decision: 'require_approval', reason: 'Clarifying question requires user response' };
+      }
       return { decision: 'allow', reason: 'Read-only tool' };
     }
 

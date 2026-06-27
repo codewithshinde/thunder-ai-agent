@@ -28,6 +28,8 @@ export interface ToolExecuteContext {
 }
 
 export class ToolExecutor {
+  private planPhaseLockOverride?: PlanPhase;
+
   constructor(
     private readonly toolRuntime: ToolRuntime,
     private readonly policyEngine: ToolPolicyEngine,
@@ -38,6 +40,14 @@ export class ToolExecutor {
     private readonly getTaskState?: () => AgentTaskState | undefined
   ) {}
 
+  setPlanPhaseLock(phase?: PlanPhase): void {
+    this.planPhaseLockOverride = phase;
+  }
+
+  clearPlanPhaseLock(): void {
+    this.planPhaseLockOverride = undefined;
+  }
+
   async execute(
     toolName: string,
     input: Record<string, unknown>,
@@ -45,7 +55,8 @@ export class ToolExecutor {
   ): Promise<ToolExecutionResult> {
     const mode = this.getMode();
 
-    const phaseCheck = isToolAllowedInPlanPhase(context?.phaseLock, toolName, input);
+    const effectivePhaseLock = context?.phaseLock ?? this.planPhaseLockOverride;
+    const phaseCheck = isToolAllowedInPlanPhase(effectivePhaseLock, toolName, input);
     if (!phaseCheck.allowed) {
       return { success: false, output: '', error: phaseCheck.reason ?? 'Tool blocked by current plan phase' };
     }

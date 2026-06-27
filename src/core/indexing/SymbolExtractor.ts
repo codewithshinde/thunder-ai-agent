@@ -1,3 +1,5 @@
+import { parseWithTreeSitter } from './TreeSitterService';
+
 export interface ExtractedSymbol {
   name: string;
   kind: string;
@@ -35,33 +37,44 @@ function extractWithPatterns(content: string, patterns: Array<{ regex: RegExp; k
 
 export const tsExtractor: SymbolExtractor = {
   language: 'typescript',
-  extract: (content) =>
-    extractWithPatterns(content, [
-      { regex: /^(?:export\s+)?class\s+(\w+)/, kind: 'class' },
+  extract: (content) => {
+    const treeSitterSymbols = parseWithTreeSitter(content, 'typescript');
+    if (treeSitterSymbols.length > 0) return dedupeSymbols(treeSitterSymbols);
+    return extractWithPatterns(content, [
+      { regex: /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/, kind: 'class' },
       { regex: /^(?:export\s+)?interface\s+(\w+)/, kind: 'interface' },
-      { regex: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/, kind: 'function' },
+      { regex: /^(?:export\s+)?(?:async\s+)?function\s+\*?\s*(\w+)/, kind: 'function' },
       { regex: /^(?:export\s+)?type\s+(\w+)/, kind: 'type' },
-      { regex: /^(?:export\s+)?const\s+(\w+)/, kind: 'const' },
-    ]),
+      { regex: /^(?:export\s+)?enum\s+(\w+)/, kind: 'enum' },
+      { regex: /^\s+(?:public|private|protected)?\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*(?::|\{)/, kind: 'method' },
+      { regex: /^(?:export\s+)?const\s+(\w+)\s*[=:]/, kind: 'const' },
+    ]);
+  },
 };
 
 export const jsExtractor: SymbolExtractor = {
   language: 'javascript',
-  extract: (content) =>
-    extractWithPatterns(content, [
+  extract: (content) => {
+    const treeSitterSymbols = parseWithTreeSitter(content, 'javascript');
+    if (treeSitterSymbols.length > 0) return dedupeSymbols(treeSitterSymbols);
+    return extractWithPatterns(content, [
       { regex: /^(?:export\s+)?class\s+(\w+)/, kind: 'class' },
-      { regex: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/, kind: 'function' },
-      { regex: /^(?:export\s+)?const\s+(\w+)/, kind: 'const' },
-    ]),
+      { regex: /^(?:export\s+)?(?:async\s+)?function\s+\*?\s*(\w+)/, kind: 'function' },
+      { regex: /^(?:export\s+)?const\s+(\w+)\s*[=:]/, kind: 'const' },
+    ]);
+  },
 };
 
 export const pythonExtractor: SymbolExtractor = {
   language: 'python',
-  extract: (content) =>
-    extractWithPatterns(content, [
+  extract: (content) => {
+    const treeSitterSymbols = parseWithTreeSitter(content, 'python');
+    if (treeSitterSymbols.length > 0) return dedupeSymbols(treeSitterSymbols);
+    return extractWithPatterns(content, [
       { regex: /^class\s+(\w+)/, kind: 'class' },
       { regex: /^(?:async\s+)?def\s+(\w+)/, kind: 'function' },
-    ]),
+    ]);
+  },
 };
 
 export const javaExtractor: SymbolExtractor = {
@@ -75,13 +88,26 @@ export const javaExtractor: SymbolExtractor = {
 
 export const goExtractor: SymbolExtractor = {
   language: 'go',
-  extract: (content) =>
-    extractWithPatterns(content, [
+  extract: (content) => {
+    const treeSitterSymbols = parseWithTreeSitter(content, 'go');
+    if (treeSitterSymbols.length > 0) return dedupeSymbols(treeSitterSymbols);
+    return extractWithPatterns(content, [
       { regex: /^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)/, kind: 'function' },
       { regex: /^type\s+(\w+)\s+struct/, kind: 'struct' },
       { regex: /^type\s+(\w+)\s+interface/, kind: 'interface' },
-    ]),
+    ]);
+  },
 };
+
+function dedupeSymbols(symbols: ExtractedSymbol[]): ExtractedSymbol[] {
+  const seen = new Set<string>();
+  return symbols.filter((s) => {
+    const key = `${s.kind}:${s.name}:${s.startLine}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 const EXTRACTORS: Record<string, SymbolExtractor> = {
   typescript: tsExtractor,
@@ -112,11 +138,15 @@ export function extractSymbolRefs(content: string, knownSymbols: Set<string>): A
   return refs;
 }
 
-// Future tree-sitter placeholder
+// Tree-sitter integration — see TreeSitterService.ts
 export interface TreeSitterParser {
   parse(content: string, language: string): ExtractedSymbol[];
 }
 
 export const treeSitterParser: TreeSitterParser = {
-  parse: () => [],
+  parse: (content, language) => {
+    const tsSymbols = parseWithTreeSitter(content, language);
+    if (tsSymbols.length > 0) return tsSymbols;
+    return getExtractor(language)?.extract(content) ?? [];
+  },
 };

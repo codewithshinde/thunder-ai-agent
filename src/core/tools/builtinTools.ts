@@ -17,6 +17,7 @@ import { isDangerousCommand } from '../safety/ToolPolicyEngine';
 import { isReadOnlyCommand } from '../planning/PlanActEngine';
 import { normalizeRelPath, normalizeWorkspaceRoot } from '../vscode/pathUtils';
 import { ResearchAgent } from '../agent/ResearchAgent';
+import { isAuditSubagentBlocked, buildScriptFirstAuditMessage } from '../agent/auditRouting';
 import type { SubagentTracker } from '../agent/SubagentTracker';
 import type { LlmProvider } from '../llm/types';
 import type { ToolDefinition } from '../llm/toolTypes';
@@ -744,7 +745,7 @@ export function createSpawnResearchAgentTool(): Tool<{
   return {
     name: 'spawn_research_agent',
     description:
-      'Delegate focused read-only research to a subagent. For many files, pass targetFiles and Thunder will split them into chunks of 5-10 and run chunks in parallel.',
+      'Delegate focused read-only research to a subagent. NOT for dependency audits — use execute_workspace_script (audit-dependencies.mjs) instead. For many files, pass targetFiles for parallel chunks.',
     risk: 'low',
     inputSchema: z.object({
       task: z.string(),
@@ -754,9 +755,16 @@ export function createSpawnResearchAgentTool(): Tool<{
       persona_instructions: z.string().optional(),
     }),
     async execute(input): Promise<ToolResult> {
+      const combinedTask = [input.task, input.focus, input.persona_instructions].filter(Boolean).join('\n');
+      if (isAuditSubagentBlocked(combinedTask)) {
+        log.warn('Blocked audit subagent', { task: input.task.slice(0, 120) });
+        return { success: true, output: buildScriptFirstAuditMessage(input.task) };
+      }
+
       if (!researchAgentRuntime || !researchAgent) {
         return { success: false, output: '', error: 'Research agent not configured' };
       }
+
       const provider = researchAgentRuntime.getProvider();
       if (!provider) {
         return { success: false, output: '', error: 'No LLM provider available' };
@@ -811,6 +819,93 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(i, i + size));
   }
   return chunks;
+}
+
+const FETCH_TIMEOUT_MS = 30_000;
+const MAX_FETCH_CHARS = 50_000;
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function createFetchWebTool(allowNetwork: () => boolean): Tool<{
+  url: string;
+  prompt?: string;
+}> {
+  return {
+    name: 'fetch_web',
+    description:
+      'Fetch content from a URL for documentation, API research, or debugging. Returns page text (HTML stripped). Use for retrieving docs when local context is insufficient.',
+    risk: 'low',
+    inputSchema: z.object({
+      url: z.string().url(),
+      prompt: z.string().optional(),
+    }),
+    async execute(input): Promise<ToolResult> {
+      if (!allowNetwork()) {
+        return { success: false, output: '', error: 'Network access disabled in Thunder settings' };
+      }
+
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        const response = await fetch(input.url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'Thunder-AI-Agent/0.1', Accept: 'text/html,application/json,text/plain,*/*' },
+        });
+        clearTimeout(timer);
+
+        if (!response.ok) {
+          return { success: false, output: '', error: `HTTP ${response.status}: ${response.statusText}` };
+        }
+
+        const contentType = response.headers.get('content-type') ?? '';
+        let body = await response.text();
+        if (body.length > MAX_FETCH_CHARS) {
+          body = body.slice(0, MAX_FETCH_CHARS) + '\n...(truncated)';
+        }
+
+        const text = contentType.includes('html') ? htmlToText(body) : body;
+        const promptNote = input.prompt ? `\n\nExtract focus: ${input.prompt}` : '';
+        return { success: true, output: `URL: ${input.url}\n${text}${promptNote}` };
+      } catch (error) {
+        return { success: false, output: '', error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  };
+}
+
+/** ask_question is intercepted by ToolExecutor — this stub should never run directly. */
+export function createAskQuestionTool(): Tool<{
+  question: string;
+  options: string[];
+}> {
+  return {
+    name: 'ask_question',
+    description:
+      'Ask the user ONE clarifying question with 2-5 selectable options. Use when a key implementation decision is ambiguous — reduces wrong-direction work. Never include an option to switch modes.',
+    risk: 'low',
+    inputSchema: z.object({
+      question: z.string().min(10),
+      options: z.array(z.string()).min(2).max(5),
+    }),
+    async execute(input): Promise<ToolResult> {
+      return {
+        success: true,
+        output: `Question pending user response: ${input.question}\nOptions: ${input.options.join(' | ')}`,
+      };
+    },
+  };
 }
 
 export function formatToolResult(toolName: string, result: ToolResult): string {

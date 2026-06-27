@@ -28,8 +28,10 @@ import {
   createRepoMapTool, createRetrieveContextTool, createGitDiffTool,
   createDiagnosticsTool, createWriteFileTool, createApplyPatchTool, createRunCommandTool,
   createMemorySearchTool, createMemoryWriteTool, createSaveTaskStateTool,
+  createFetchWebTool, createAskQuestionTool,
   setSubagentTracker,
 } from './tools/builtinTools';
+import { createMarkStepCompleteTool, createProposePlanMutationTool } from './tools/planTools';
 import { OpenAiCompatibleProvider } from './llm/OpenAiCompatibleProvider';
 import type { LlmProvider } from './llm/types';
 import { AgentTaskState } from './agent/AgentTaskState';
@@ -42,6 +44,7 @@ import { CheckpointService } from './apply/CheckpointService';
 import { MemoryService } from './memory/MemoryService';
 import { SessionService } from './session/SessionService';
 import { PlanPersistence } from './planning/PlanPersistence';
+import { PlanFileStore } from './planning/PlanFileStore';
 import { MemoryExtractor } from './agent/MemoryExtractor';
 import { SubagentTracker } from './agent/SubagentTracker';
 import { PassiveMemoryInjector } from './memory/PassiveMemoryInjector';
@@ -377,9 +380,29 @@ export class ThunderController {
     this.toolRuntime.register(createRunCommandTool(workspace, () => this.session?.mode ?? 'plan'));
     this.toolRuntime.register(createMemorySearchTool(this.memoryService));
     this.toolRuntime.register(createMemoryWriteTool(this.memoryService, () => this.session?.id ?? ''));
-    this.toolRuntime.register(
-      createSaveTaskStateTool(this.memoryService, () => this.session?.id ?? '', () => this.agentTaskState)
-    );
+    this.toolRuntime.register(createSaveTaskStateTool(this.memoryService, () => this.session?.id ?? '', () => this.agentTaskState));
+    this.toolRuntime.register(createFetchWebTool(() => this.configService.getConfig().safety.allowNetwork));
+    this.toolRuntime.register(createAskQuestionTool());
+
+    const sessionIdForPlans = () => this.session?.id ?? '';
+    const planToolsCtx = {
+      getPlan: () => this.planPersistence?.getActive(sessionIdForPlans())?.plan ?? null,
+      setPlan: (plan: import('./planning/PlanActEngine').ThunderPlan) => {
+        const sid = sessionIdForPlans();
+        if (sid) this.planPersistence?.updatePlan(sid, plan);
+      },
+      planPersistence: this.planPersistence,
+      getSessionId: sessionIdForPlans,
+      setPlanPhaseLock: (phase: import('./planning/PlanActEngine').PlanPhase | undefined) => {
+        this.toolExecutor.setPlanPhaseLock(phase);
+      },
+      get planFileStore() {
+        const sid = sessionIdForPlans();
+        return sid ? new PlanFileStore(workspace, sid) : undefined;
+      },
+    };
+    this.toolRuntime.register(createMarkStepCompleteTool(planToolsCtx));
+    this.toolRuntime.register(createProposePlanMutationTool(planToolsCtx));
     await this.mcpManager.reload(config.mcp, workspace, this.toolRuntime);
 
     this.memoryExtractor = new MemoryExtractor(
@@ -993,7 +1016,7 @@ export class ThunderController {
     this.chatOrchestrator?.stop();
   }
 
-  async resolveApproval(id: string, decision: 'approved' | 'denied'): Promise<void> {
+  async resolveApproval(id: string, decision: 'approved' | 'denied', selectedOption?: string): Promise<void> {
     const fullInput = this.approvalQueue?.getFullInput(id);
     const request = this.approvalQueue?.resolve(id, decision);
     if (!request) return;
@@ -1003,9 +1026,28 @@ export class ThunderController {
       toolName: request.toolName,
       files: request.files,
       risk: request.risk,
+      selectedOption,
     });
 
     this.notifyUi({ approvals: (this.approvalQueue?.getPending() ?? []).map(toApprovalView) });
+
+    if (request.toolName === 'ask_question') {
+      const options = request.options ?? (Array.isArray(fullInput?.options) ? fullInput.options as string[] : []);
+      const answer = decision === 'approved'
+        ? (selectedOption ?? options[0] ?? 'User confirmed')
+        : 'User declined to answer the clarifying question.';
+      this.pushActivity('info', decision === 'approved' ? 'Question answered' : 'Question skipped', answer);
+      if (request.toolCallId) {
+        this.resumeApprovalResults.push({
+          toolCallId: request.toolCallId,
+          toolName: request.toolName,
+          output: `User selected: ${answer}`,
+          success: decision === 'approved',
+          input: fullInput,
+        });
+      }
+      return;
+    }
 
     if (decision === 'denied') {
       this.pushActivity('info', `Denied ${request.toolName}`, request.files.join(', ') || undefined);
@@ -1332,5 +1374,8 @@ function toApprovalView(r: import('./safety/ApprovalQueue').ApprovalRequest): Ap
     risk: r.risk,
     reason: r.reason,
     contentLength: r.contentLength,
+    kind: r.kind,
+    question: r.question,
+    options: r.options,
   };
 }

@@ -50,7 +50,7 @@ export function analyzeTask(userMessage: string, mode: string): TaskAnalysis {
     return {
       ...classified,
       shouldVerify: false,
-      shouldUseSubagents: classified.shouldUseSubagents || classified.kind === 'audit',
+      shouldUseSubagents: classified.shouldUseSubagents || (classified.kind === 'audit' && !/\bdependenc/i.test(taskText)),
       summary: `${classified.summary} Plan mode — produce the plan only; do not execute.`,
     };
   }
@@ -78,8 +78,8 @@ function classifyTask(text: string): TaskAnalysis {
       complexity: 'high',
       shouldPlan: true,
       shouldVerify: true,
-      shouldUseSubagents: true,
-      summary: 'Audit/cleanup task — plan scan steps, verify before removal.',
+      shouldUseSubagents: false,
+      summary: 'Audit/cleanup task — run script catalog (depcheck/knip) first; avoid dependency subagents.',
     };
   }
 

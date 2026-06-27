@@ -18,6 +18,9 @@ export interface ApprovalRequestView {
   risk: 'low' | 'medium' | 'high';
   reason: string;
   contentLength?: number;
+  kind?: 'approval' | 'question';
+  question?: string;
+  options?: string[];
 }
 
 export interface TokenUsageView {
@@ -101,7 +104,7 @@ export interface AgentActivityEntry {
 export interface PlanStepView {
   id: string;
   title: string;
-  status: 'pending' | 'running' | 'done' | 'blocked' | 'failed';
+  status: 'pending' | 'running' | 'done' | 'blocked' | 'failed' | 'blocked_by_dependency';
   risk: 'low' | 'medium' | 'high';
   files?: string[];
 }
@@ -248,7 +251,7 @@ export type WebviewToExtensionMessage =
   | { type: 'setTab'; payload: WebviewTab }
   | { type: 'stopGeneration' }
   | { type: 'clearError' }
-  | { type: 'resolveApproval'; payload: { id: string; decision: 'approved' | 'denied' } }
+  | { type: 'resolveApproval'; payload: { id: string; decision: 'approved' | 'denied'; selectedOption?: string } }
   | { type: 'approveAllPending' }
   | { type: 'saveApiKey'; payload: { key: string } }
   | { type: 'saveProviderSettings'; payload: ProviderSettingsPayload }

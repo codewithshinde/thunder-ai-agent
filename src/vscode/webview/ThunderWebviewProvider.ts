@@ -198,7 +198,11 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         break;
 
       case 'resolveApproval':
-        await this.controller.resolveApproval(message.payload.id, message.payload.decision);
+        await this.controller.resolveApproval(
+          message.payload.id,
+          message.payload.decision,
+          message.payload.selectedOption
+        );
         await this.syncState();
         if (message.payload.decision === 'approved') {
           await this.continueAfterApproval();
@@ -362,6 +366,9 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
           files: r.files,
           risk: r.risk,
           reason: r.reason,
+          kind: r.kind,
+          question: r.question,
+          options: r.options,
         })),
       };
       this.archiveCurrentThread();
@@ -469,6 +476,9 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
           files: r.files,
           risk: r.risk,
           reason: r.reason,
+          kind: r.kind,
+          question: r.question,
+          options: r.options,
         })),
       };
       this.archiveCurrentThread();

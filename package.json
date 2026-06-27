@@ -185,6 +185,11 @@
           "default": "",
           "description": "Optional OpenAI-compatible base URL for the research subagent model. Empty uses thunder.provider.baseUrl."
         },
+        "thunder.agent.orchestrationEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the multi-step planner in Plan mode. Act mode uses a faster direct agent path by default."
+        },
         "thunder.mcp.enabled": {
           "type": "boolean",
           "default": true,
@@ -262,6 +267,13 @@
     "react-dom": "^18.3.1",
     "simple-git": "^3.25.0",
     "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-typescript": "^0.23.2",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-python": "^0.23.4",
+    "tree-sitter-go": "^0.23.4"
   },
   "knip": {
     "ignoreDependencies": [

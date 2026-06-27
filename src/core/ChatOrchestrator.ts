@@ -278,9 +278,11 @@ export class ChatOrchestrator {
       this.agentLoop?.clearSuspendState();
     }
     const orchestrationEnabled = agentConfig?.orchestrationEnabled ?? true;
+    const plannerEnabled = shouldUsePlanner(session.mode, taskAnalysis, orchestrationEnabled, auditMode);
     const subagentsEnabled =
       (agentConfig?.subagentsEnabled ?? true) &&
-      (auditMode || taskAnalysis.shouldUseSubagents);
+      !auditMode &&
+      taskAnalysis.shouldUseSubagents;
     const tools = toolsEnabled
       ? toolsToDefinitions(this.deps.toolRuntime!.list()).filter((tool) =>
           subagentsEnabled || tool.function.name !== 'spawn_research_agent'
@@ -303,14 +305,17 @@ export class ChatOrchestrator {
       this.emitActivity('info', 'Audit mode — using tools to scan project');
     } else if (isResume) {
       this.emitActivity('info', 'Resuming after approval — continuing execution');
-    } else if (orchestrationEnabled && taskAnalysis.shouldPlan) {
+    } else if (plannerEnabled) {
       this.emitActivity('info', `Orchestration: ${taskAnalysis.kind} (${taskAnalysis.complexity})`, taskAnalysis.summary);
+    } else if (orchestrationEnabled && taskAnalysis.shouldPlan && session.mode === 'act') {
+      this.emitActivity('info', 'Fast Act mode — sending directly to the tool-using agent', taskAnalysis.summary);
     }
     this.deps.sessionLog?.append('info', 'Task analysis', {
       kind: taskAnalysis.kind,
       complexity: taskAnalysis.complexity,
       shouldPlan: taskAnalysis.shouldPlan,
-      shouldUseSubagents: taskAnalysis.shouldUseSubagents,
+      plannerEnabled,
+      shouldUseSubagents: subagentsEnabled,
       auditMode,
       toolsEnabled,
     });
@@ -321,8 +326,47 @@ export class ChatOrchestrator {
     const sharedLoopCallbacks = this.buildLoopCallbacks();
 
     try {
+      const activePlan = this.deps.planPersistence?.getActive(session.id);
       if (
-        orchestrationEnabled &&
+        !isApprovalContinuationMessage(userMessage) &&
+        shouldExecuteSavedPlan(session.mode, userMessage, Boolean(activePlan?.plan)) &&
+        this.planExecutor &&
+        activePlan
+      ) {
+        const plan = activePlan.plan;
+        this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
+        this.setLiveStatus('Executing saved plan', plan.goal, 1, plan.steps.length);
+        this.emitActivity('info', `Resuming saved plan (${plan.steps.length} steps)…`);
+
+        for await (const chunk of this.planExecutor.executePlan(
+          session,
+          provider,
+          plan,
+          pack,
+          tools,
+          (updated) => this.onPlan?.({ goal: updated.goal, assumptions: updated.assumptions, steps: updated.steps }),
+          signal,
+          sharedLoopCallbacks,
+          {
+            stepMaxRetries: agentConfig?.stepMaxRetries,
+            finalValidationEnabled: agentConfig?.finalValidationEnabled,
+            agentMaxSteps: agentConfig?.maxSteps,
+            restrictRunCommandToReadOnly: auditMode,
+            workspace: this.deps.workspace,
+          }
+        )) {
+          if (signal.aborted) break;
+          fullResponse += chunk;
+          yield chunk;
+        }
+
+        await this.finishTurn(session, provider, userMessage, fullResponse, pack, compacted);
+        this.setLiveStatus(null);
+        return;
+      }
+
+      if (
+        plannerEnabled &&
         this.planExecutor &&
         taskAnalysis.shouldPlan
       ) {
@@ -387,17 +431,20 @@ export class ChatOrchestrator {
           userMessage,
           requirementAnalysis,
           planningDiscovery,
-          taskAnalysis
+          taskAnalysis,
+          session.id,
+          {
+            workspace: this.deps.workspace,
+            useIsolatedPlanning: true,
+          }
         );
         if (plan && plan.steps.length >= 1) {
           this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
-          if (session.mode !== 'act') {
-            this.deps.planPersistence?.save(session.id, plan);
-            this.deps.sessionLog?.append('plan_created', plan.goal, {
-              stepCount: plan.steps.length,
-              steps: plan.steps.map((s) => ({ id: s.id, title: s.title, risk: s.risk, phase: s.phase })),
-            });
-          }
+          this.deps.planPersistence?.save(session.id, plan);
+          this.deps.sessionLog?.append('plan_created', plan.goal, {
+            stepCount: plan.steps.length,
+            steps: plan.steps.map((s) => ({ id: s.id, title: s.title, risk: s.risk, phase: s.phase })),
+          });
 
           if (session.mode === 'act') {
             this.setLiveStatus('Executing plan', plan.goal, 1, plan.steps.length);
@@ -432,6 +479,7 @@ export class ChatOrchestrator {
                 finalValidationEnabled: agentConfig?.finalValidationEnabled,
                 agentMaxSteps: agentConfig?.maxSteps,
                 restrictRunCommandToReadOnly: auditMode,
+                workspace: this.deps.workspace,
               }
             )) {
               if (signal.aborted) break;
@@ -948,6 +996,33 @@ function formatPlanAsResponse(plan: import('./planning/PlanActEngine').ThunderPl
   }
   lines.push('', '---', '*Switch to **Act** mode and ask to execute this plan when ready.*');
   return lines.join('\n');
+}
+
+function shouldUsePlanner(
+  mode: ThunderSession['mode'],
+  taskAnalysis: ReturnType<typeof analyzeTask>,
+  orchestrationEnabled: boolean,
+  auditMode = false
+): boolean {
+  if (!orchestrationEnabled || !taskAnalysis.shouldPlan) return false;
+  // Audit in Act mode: script-first direct path — skip 9-step planner overhead
+  if (auditMode && mode === 'act') return false;
+  return mode === 'plan' || mode === 'act';
+}
+
+export { shouldUsePlanner };
+
+function shouldExecuteSavedPlan(
+  mode: ThunderSession['mode'],
+  userMessage: string,
+  hasActivePlan: boolean
+): boolean {
+  if (mode !== 'act' || !hasActivePlan) return false;
+  const lower = userMessage.toLowerCase();
+  return /\b(execute|run|start|continue|resume)\b.*\bplan\b/.test(lower)
+    || /\bplan\b.*\b(execute|run|start|continue|resume)\b/.test(lower)
+    || lower.includes('execute this plan')
+    || lower.includes('run the plan');
 }
 
 export function contextPackToBudgetView(pack: ContextPack): ContextBudgetView {

@@ -226,6 +226,24 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 13,
+    name: 'create_file_imports_table',
+    up: (db) => {
+      db.raw.exec(`
+        CREATE TABLE IF NOT EXISTS file_imports (
+          id INTEGER PRIMARY KEY,
+          from_file_id INTEGER NOT NULL,
+          to_rel_path TEXT NOT NULL,
+          specifier TEXT NOT NULL,
+          line INTEGER NOT NULL,
+          FOREIGN KEY(from_file_id) REFERENCES files(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_imports_from ON file_imports(from_file_id);
+        CREATE INDEX IF NOT EXISTS idx_file_imports_to ON file_imports(to_rel_path);
+      `);
+    },
+  },
 ];
 
 export class MigrationRunner {
