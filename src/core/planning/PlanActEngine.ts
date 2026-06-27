@@ -163,6 +163,65 @@ export function isPatchAllowed(mode: string): boolean {
   return mode === 'act';
 }
 
+export function inferStepPhase(title: string, index: number): PlanPhase {
+  const text = title.toLowerCase();
+  if (/\b(verify|test|lint|build|validate)\b/.test(text)) return 'verify';
+  if (/\b(execute|implement|edit|patch|write|remove|update|fix|rewrite|redesign|overhaul|refactor|prepare|theme|style|component)\b/.test(text)) {
+    return 'execute';
+  }
+  if (/\b(review|cross-check|confirm|decide)\b/.test(text)) return 'review';
+  if (/\b(audit|inspect|analyze|read|identify|diagnostic)\b/.test(text)) return 'diagnostics';
+  return index === 0 ? 'diagnostics' : 'execute';
+}
+
+const WRITE_INTENT_PATTERN =
+  /\b(fix|rewrite|redesign|overhaul|implement|refactor|update|patch|write|prepare|create|add|remove|migrate|build|style|theme|component)\b/i;
+
+export function stepImpliesWrite(step: {
+  title: string;
+  objective?: string;
+  tools?: string[];
+  files?: string[];
+}): boolean {
+  const text = `${step.title} ${step.objective ?? ''}`;
+  const lower = text.toLowerCase();
+  if (step.tools?.some((t) => ['write_file', 'apply_patch'].includes(t))) return true;
+  if (
+    /\b(audit|inspect|analyze|diagnostic|identify)\b/.test(lower) &&
+    !/\b(fix|rewrite|redesign|overhaul|implement|refactor|update|patch|write|prepare|create|add|remove|migrate|build|style|theme|component)\b/.test(lower)
+  ) {
+    return false;
+  }
+  if (WRITE_INTENT_PATTERN.test(text)) return true;
+  return false;
+}
+
+/** Resolve the effective phase lock for a plan step (Act mode upgrades write steps stuck in diagnostics). */
+export function resolveStepPhaseLock(
+  step: {
+    title: string;
+    objective?: string;
+    phase?: PlanPhase;
+    tools?: string[];
+    files?: string[];
+  },
+  mode: string
+): PlanPhase | undefined {
+  const declared = step.phase ?? inferStepPhase(step.title, 0);
+  if (mode !== 'act') return declared;
+  if (
+    stepImpliesWrite(step) &&
+    (declared === 'diagnostics' || declared === 'review')
+  ) {
+    return 'execute';
+  }
+  return declared;
+}
+
+export function isPhaseLockWriteError(error?: string): boolean {
+  return Boolean(error?.includes('file writes are locked until Phase 3'));
+}
+
 export function isToolAllowedInPlanPhase(
   phase: PlanPhase | undefined,
   toolName: string,
@@ -174,7 +233,7 @@ export function isToolAllowedInPlanPhase(
     if (['write_file', 'apply_patch'].includes(toolName)) {
       return {
         allowed: false,
-        reason: `${phaseLabel(phase)} is read-only; file writes are locked until Phase 3 (Execute).`,
+        reason: `${phaseLabel(phase)} is read-only; file writes are locked until Phase 3 (Execute). If analysis is complete, stop retrying writes — the orchestrator advances steps automatically.`,
       };
     }
     if (toolName === 'run_command' && !isReadOnlyCommand(typeof input.command === 'string' ? input.command : '')) {

@@ -1,8 +1,9 @@
-import type { AgentActivityEntry } from '../../../vscode/webview/messages';
+import type { AgentActivityEntry, AgentLiveStatusView } from '../../../vscode/webview/messages';
 
 interface AgentActivityPanelProps {
   entries: AgentActivityEntry[];
   loading: boolean;
+  liveStatus?: AgentLiveStatusView | null;
   waitingForApproval?: boolean;
 }
 
@@ -17,14 +18,17 @@ const KIND_LABEL: Record<AgentActivityEntry['kind'], string> = {
   tool: 'Tool',
 };
 
-export function AgentActivityPanel({ entries, loading, waitingForApproval = false }: AgentActivityPanelProps) {
+export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApproval = false }: AgentActivityPanelProps) {
   const visible = entries.slice(-8);
   const latest = entries[entries.length - 1];
   const statusLabel = loading
-    ? 'Working through steps'
+    ? liveStatus?.label ?? 'Working through steps'
     : waitingForApproval
       ? 'Waiting for your approval'
       : 'Activity complete';
+  const progressLabel = liveStatus?.stepCurrent && liveStatus.stepTotal
+    ? `${liveStatus.stepCurrent}/${liveStatus.stepTotal}`
+    : undefined;
 
   if (entries.length === 0 && !loading && !waitingForApproval) return null;
 
@@ -37,7 +41,11 @@ export function AgentActivityPanel({ entries, loading, waitingForApproval = fals
           }`}
           aria-hidden="true"
         />
-        <span>{latest?.message ?? statusLabel}</span>
+        <span>
+          {statusLabel}
+          {progressLabel ? ` · ${progressLabel}` : ''}
+          {liveStatus?.detail ? ` · ${liveStatus.detail}` : ''}
+        </span>
       </p>
       <ol className="assistant-thinking__list">
         {visible.map((entry, index) => {

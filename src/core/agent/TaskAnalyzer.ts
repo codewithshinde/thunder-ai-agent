@@ -14,13 +14,22 @@ export interface TaskAnalysis {
 }
 
 const ACTION_VERBS =
-  /\b(implement|build|create|add|fix|refactor|migrate|rewrite|update|remove|delete|integrate|wire|connect|setup|configure|optimize|debug|test)\b/i;
+  /\b(implement|build|create|add|fix|refactor|migrate|rewrite|update|remove|delete|integrate|wire|connect|setup|configure|optimize|improve|imporve|enhance|polish|redesign|debug|test)\b/i;
+
+const UI_POLISH_SCOPE =
+  /\b(ui|ux|layout|component|components|card|cards|child components?|screen|view|style|styles|visual|visuals|interaction|interactions)\b/i;
 
 const EXPLICIT_PLAN =
   /step[- ]by[- ]step|break(?: it)? down|multi[- ]step|\b(create|make) a plan\b|\bplan (?:this|out)\b|execution plan/i;
 
 const QUESTION =
   /^(what|how|why|where|when|who|which|explain|describe|tell me|show me|list|summarize|overview)\b/i;
+
+const DIRECT_ERROR_FIX =
+  /\b(syntax error|type error|referenceerror|cannot find module|missing semicolon|unexpected token|parse error|compilation error|is not defined|enoent)\b/i;
+
+const FILE_PATH_IN_TEXT =
+  /(?:^|\s|['"`])([\w./-]+\.(?:tsx?|jsx?|py|go|rs|json|css|scss|md))\b/i;
 
 const SIMPLE_EDIT =
   /\b(fix typo|rename|change (?:the )?(?:name|text|label)|update import|add comment|format)\b/i;
@@ -105,6 +114,20 @@ function classifyTask(text: string): TaskAnalysis {
     };
   }
 
+  if (DIRECT_ERROR_FIX.test(text)) {
+    const fileMatch = text.match(FILE_PATH_IN_TEXT);
+    return {
+      kind: 'simple_edit',
+      complexity: 'low',
+      shouldPlan: false,
+      shouldVerify: true,
+      shouldUseSubagents: false,
+      summary: fileMatch
+        ? `Compiler/runtime error in ${fileMatch[1]} — fix directly without replanning.`
+        : 'Error report — fix directly without replanning.',
+    };
+  }
+
   if (SIMPLE_EDIT.test(text) && text.length < 120) {
     return {
       kind: 'simple_edit',
@@ -121,9 +144,11 @@ function classifyTask(text: string): TaskAnalysis {
   const fileMentions = (text.match(/[`'"]?[\w./-]+\.(tsx?|jsx?|py|go|rs|json|md|css|scss|yaml|yml)[`'"]?/gi) ?? []).length;
   const complexity = estimateComplexity(text);
 
+  const isUiPolishTask = ACTION_VERBS.test(text) && UI_POLISH_SCOPE.test(text);
+
   const isImplementation =
     actionCount >= 1 &&
-    (connectorCount >= 1 || fileMentions >= 2 || text.length > 140 || complexity !== 'low');
+    (connectorCount >= 1 || fileMentions >= 2 || text.length > 140 || complexity !== 'low' || isUiPolishTask);
 
   if (isImplementation) {
     return {

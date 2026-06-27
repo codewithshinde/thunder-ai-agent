@@ -59,6 +59,24 @@ describe('IgnoreService', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('refuses to write shell commands into source files', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-write-guard-test-'));
+    try {
+      const ig = new IgnoreService();
+      ig.load(tempDir);
+      const { createWriteFileTool } = await import('../src/core/tools/builtinTools');
+      const result = await createWriteFileTool(tempDir, ig).execute({
+        path: 'src/screens/kitchen-screen/components/DineInKanban.tsx',
+        content: 'git checkout HEAD -- src/screens/kitchen-screen/components/DineInKanban.tsx',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('content starts with a shell command');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('ChunkingService', () => {
@@ -312,6 +330,55 @@ describe('Plan parser', () => {
     expect(parsed?.steps[0].tools).toEqual(['read_file']);
     expect(parsed?.steps[0].successCriteria).toEqual(['Mode branch is understood']);
   });
+
+  it('keeps generated plan phases mode-aware', async () => {
+    const { PlanExecutor } = await import('../src/core/agent/PlanExecutor');
+    const provider = {
+      id: 'fake',
+      capabilities: {
+        contextWindow: 8192,
+        supportsStreaming: false,
+        supportsTools: false,
+        supportsEmbeddings: false,
+      },
+      async *complete() {
+        yield {
+          content: `\`\`\`json
+{
+  "goal": "Fix bug",
+  "assumptions": [],
+  "steps": [
+    {
+      "id": "step-1",
+      "title": "Fix Theme Utilities",
+      "phase": "diagnostics",
+      "tools": ["apply_patch"],
+      "risk": "medium"
+    }
+  ],
+  "requiredApprovals": []
+}
+\`\`\``,
+        };
+      },
+    };
+    const pack = {
+      items: [],
+      totalTokens: 0,
+      formatted: '',
+      budgetLimit: 100,
+      retrievedCount: 0,
+      truncatedCount: 0,
+      dropped: [],
+    };
+    const executor = new PlanExecutor({} as never, { save: () => 'plan-id' } as never);
+
+    const planMode = await executor.generatePlan(provider, 'plan', pack, 'fix bug');
+    const actMode = await executor.generatePlan(provider, 'act', pack, 'fix bug');
+
+    expect(planMode?.steps[0].phase).toBe('diagnostics');
+    expect(actMode?.steps[0].phase).toBe('execute');
+  });
 });
 
 describe('extractFileMentions', () => {
@@ -439,6 +506,18 @@ describe('TaskAnalyzer', () => {
     expect(impl.kind).toBe('implementation');
     expect(impl.shouldPlan).toBe(true);
     expect(impl.shouldVerify).toBe(true);
+  });
+
+  it('classifies UI polish requests with typos as implementation work', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const result = analyzeTask(
+      '@src/utils/kitchen-status.ts Can you imporve the Ui and UX of this file and also its child compoenents, cards and all',
+      'act'
+    );
+
+    expect(result.kind).toBe('implementation');
+    expect(result.shouldPlan).toBe(true);
+    expect(result.shouldVerify).toBe(true);
   });
 });
 
@@ -616,6 +695,34 @@ describe('PlanActEngine read-only shell', () => {
     expect(isShellAllowed('plan', 'npm install lodash')).toBe(false);
     expect(isToolAllowedInPlanPhase('execute', 'run_command', { command: 'npm run build' }).allowed).toBe(true);
     expect(isToolAllowedInPlanPhase('verify', 'run_command', { command: 'npm run build' }).allowed).toBe(true);
+  });
+
+  it('upgrades write-intent steps from diagnostics to execute in act mode', async () => {
+    const { resolveStepPhaseLock, stepImpliesWrite } = await import('../src/core/planning/PlanActEngine');
+    expect(stepImpliesWrite({ title: 'Audit Current Implementation & Identify Bugs' })).toBe(false);
+    expect(stepImpliesWrite({ title: 'Fix ReferenceError & Prepare Theme Utilities' })).toBe(true);
+    expect(
+      resolveStepPhaseLock(
+        { title: 'Fix ReferenceError & Prepare Theme Utilities', phase: 'diagnostics' },
+        'act'
+      )
+    ).toBe('execute');
+    expect(
+      resolveStepPhaseLock(
+        { title: 'Audit Current Implementation & Identify Bugs', phase: 'diagnostics' },
+        'act'
+      )
+    ).toBe('diagnostics');
+    expect(stepImpliesWrite({
+      title: 'Identify and remove unused imports',
+      tools: ['apply_patch'],
+    })).toBe(true);
+  });
+
+  it('detects phase-lock write errors', async () => {
+    const { isPhaseLockWriteError } = await import('../src/core/planning/PlanActEngine');
+    expect(isPhaseLockWriteError('Phase 1 (Diagnostics) is read-only; file writes are locked until Phase 3 (Execute).')).toBe(true);
+    expect(isPhaseLockWriteError('Patch failed')).toBe(false);
   });
 });
 
@@ -828,5 +935,65 @@ describe('buildPrompt explicit context', () => {
     const user = messages.find((m) => m.role === 'user');
     expect(user?.content.startsWith('<user_explicit_context>')).toBe(true);
     expect(user?.content).toContain('## Codebase Context');
+  });
+});
+
+describe('TaskAnalyzer direct error fix', () => {
+  it('routes syntax/compiler errors to direct execution without replanning', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const message = `Syntax error: Missing semicolon. (2:28)
+src/screens/kitchen-screen/components/DineInKanban.tsx
+
+  1 | // BEFORE (crashed)
+> 2 | '&::-webkit-scrollbar-thumb': (t) => ({`;
+
+    const analysis = analyzeTask(message, 'act');
+    expect(analysis.kind).toBe('simple_edit');
+    expect(analysis.shouldPlan).toBe(false);
+    expect(analysis.summary).toContain('DineInKanban.tsx');
+  });
+});
+
+describe('SessionLogService timing', () => {
+  it('records timing events and omits debug payloads when debugMetrics is off', async () => {
+    const { SessionLogService } = await import('../src/core/telemetry/SessionLogService');
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-session-log-'));
+
+    try {
+      const service = new SessionLogService();
+      service.configure(tempDir, 'test-session', true, false);
+      service.appendTiming('context_retrieval', 120, { itemCount: 3 });
+      service.appendDebug('tool_start', 'read_file', { input: { path: 'src/a.ts' } });
+      service.append('tool_start', 'read_file', { tool: 'read_file' });
+
+      const raw = service.exportForAnalysis();
+      expect(raw).toContain('"type":"timing"');
+      expect(raw).toContain('"durationMs":120');
+      expect(raw).not.toContain('"input"');
+      expect(raw).toContain('"tool":"read_file"');
+
+      const summary = service.exportSummary();
+      expect(summary).toContain('context_retrieval');
+      expect(summary).toContain('120ms');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('captures debug payloads when debugMetrics is enabled', async () => {
+    const { SessionLogService } = await import('../src/core/telemetry/SessionLogService');
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-session-log-debug-'));
+
+    try {
+      const service = new SessionLogService();
+      service.configure(tempDir, 'debug-session', true, true);
+      service.appendDebug('tool_start', 'read_file', { input: { path: 'src/a.ts' } });
+
+      const raw = service.exportForAnalysis();
+      expect(raw).toContain('"input"');
+      expect(raw).toContain('src/a.ts');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

@@ -53,6 +53,7 @@ export const AgentConfigSchema = z.object({
   orchestrationEnabled: z.boolean().default(true),
   stepMaxRetries: z.number().int().min(0).max(5).default(2),
   finalValidationEnabled: z.boolean().default(true),
+  showDiffPreview: z.boolean().default(false),
 });
 
 export const McpServerConfigSchema = z.object({
@@ -76,6 +77,8 @@ export const WorkspaceConfigSchema = z.object({
 
 export const TelemetryConfigSchema = z.object({
   sessionLogging: z.boolean().default(true),
+  /** Extra diagnostics: tool inputs, context sources, LLM step metadata. Off by default for speed. */
+  debugMetrics: z.boolean().default(false),
 });
 
 export const ThunderConfigSchema = z.object({

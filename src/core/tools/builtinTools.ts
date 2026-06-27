@@ -64,6 +64,24 @@ function resolveToolPath(_workspace: string, rawPath: string, ignoreService: Ign
   return relPath;
 }
 
+const SOURCE_FILE_PATTERN = /\.(?:tsx?|jsx?|mjs|cjs|css|scss|sass|less|json|ya?ml)$/i;
+const SHELL_COMMAND_CONTENT_PREFIX =
+  /^(?:git\s+(?:checkout|restore|reset|clean|pull|push|commit|merge|rebase|switch)\b|(?:npm|yarn|pnpm|npx)\s+|rm\s+-|mv\s+|cp\s+|sed\s+-i\b|cat\s+>|echo\s+.+>|python(?:3)?\s+|node\s+|bash\s+|sh\s+)/i;
+
+function validateWriteFileContent(relPath: string, content: string): string | undefined {
+  if (!SOURCE_FILE_PATTERN.test(relPath)) return undefined;
+
+  const firstLine = content.trimStart().split(/\r?\n/, 1)[0]?.trim() ?? '';
+  if (SHELL_COMMAND_CONTENT_PREFIX.test(firstLine)) {
+    return [
+      `Refusing to write ${relPath}: content starts with a shell command.`,
+      'Use run_command for shell commands, or provide real source code for write_file.',
+    ].join(' ');
+  }
+
+  return undefined;
+}
+
 export function createReadFileTool(workspace: string, ignoreService: IgnoreService): Tool<{ path: string }> {
   return {
     name: 'read_file',
@@ -587,6 +605,10 @@ export function createWriteFileTool(workspace: string, ignoreService: IgnoreServ
       const relPath = resolveToolPath(workspace, input.path, ignoreService);
       if (!relPath) {
         return { success: false, output: '', error: 'Invalid or ignored path' };
+      }
+      const validationError = validateWriteFileContent(relPath, input.content);
+      if (validationError) {
+        return { success: false, output: '', error: validationError };
       }
       try {
         const fullPath = join(workspace, relPath);

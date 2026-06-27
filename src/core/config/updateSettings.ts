@@ -22,6 +22,7 @@ export async function updateAgentSettings(settings: AgentSettingsPayload): Promi
   await config.update('agent.autoContinue', settings.autoContinue, target);
   await config.update('agent.maxAutoContinues', settings.maxAutoContinues, target);
   await config.update('agent.researchAgentMaxSteps', settings.researchAgentMaxSteps, target);
+  await config.update('agent.showDiffPreview', settings.showDiffPreview, target);
 }
 
 export async function updateSafetySettings(settings: SafetySettingsPayload): Promise<void> {

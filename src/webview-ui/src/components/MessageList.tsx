@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { AgentActivityEntry, ApprovalRequestView, ChatMessage } from '../../../vscode/webview/messages';
+import type { AgentActivityEntry, AgentLiveStatusView, ApprovalRequestView, ChatMessage } from '../../../vscode/webview/messages';
 import { MarkdownMessage } from './MarkdownMessage';
 import { AgentActivityPanel } from './AgentActivityPanel';
 import { useStreamReveal } from '../hooks/useStreamReveal';
@@ -8,6 +8,7 @@ interface MessageListProps {
   messages: ChatMessage[];
   loading?: boolean;
   agentActivity?: AgentActivityEntry[];
+  agentLiveStatus?: AgentLiveStatusView | null;
   approvals?: ApprovalRequestView[];
 }
 
@@ -16,12 +17,12 @@ function AssistantMessage({ content, streaming }: { content: string; streaming?:
   return <MarkdownMessage content={revealed} streaming={streaming} />;
 }
 
-export function MessageList({ messages, loading, agentActivity = [], approvals = [] }: MessageListProps) {
+export function MessageList({ messages, loading, agentActivity = [], agentLiveStatus = null, approvals = [] }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, loading, agentActivity.length, approvals.length]);
+  }, [messages, loading, agentActivity.length, agentLiveStatus?.label, agentLiveStatus?.stepCurrent, approvals.length]);
 
   if (messages.length === 0) {
     return (
@@ -61,6 +62,7 @@ export function MessageList({ messages, loading, agentActivity = [], approvals =
             <AgentActivityPanel
               entries={agentActivity}
               loading={Boolean(loading)}
+              liveStatus={agentLiveStatus}
               waitingForApproval={!loading && approvals.length > 0}
             />
           </div>

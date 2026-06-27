@@ -19,6 +19,9 @@ export type SessionLogEventType =
   | 'plan_step'
   | 'context_pack'
   | 'token_usage'
+  | 'process_start'
+  | 'process_end'
+  | 'timing'
   | 'error'
   | 'info';
 
@@ -37,14 +40,16 @@ export interface SessionLogEvent {
  */
 export class SessionLogService {
   private enabled = true;
+  private debugMetrics = false;
   private workspace = '';
   private sessionId = '';
   private logPath = '';
 
-  configure(workspace: string, sessionId: string, enabled = true): void {
+  configure(workspace: string, sessionId: string, enabled = true, debugMetrics = false): void {
     this.workspace = workspace;
     this.sessionId = sessionId;
     this.enabled = enabled && Boolean(workspace);
+    this.debugMetrics = debugMetrics;
     if (!this.enabled) return;
 
     const dir = join(workspace, '.thunder', 'logs');
@@ -58,13 +63,36 @@ export class SessionLogService {
     return this.enabled && Boolean(this.logPath);
   }
 
+  isDebugMetricsEnabled(): boolean {
+    return this.debugMetrics;
+  }
+
   getLogPath(): string {
     return this.logPath;
   }
 
   append(type: SessionLogEventType, message: string, data?: Record<string, unknown>): void {
     if (!this.isEnabled()) return;
+    this.writeEvent(type, message, data);
+  }
 
+  /** Verbose diagnostics — only written when `telemetry.debugMetrics` is enabled. */
+  appendDebug(type: SessionLogEventType, message: string, data?: Record<string, unknown>): void {
+    if (!this.isEnabled() || !this.debugMetrics) return;
+    this.writeEvent(type, message, data);
+  }
+
+  /** Record how long a named process took. Always logged when session logging is on. */
+  appendTiming(process: string, durationMs: number, data?: Record<string, unknown>): void {
+    if (!this.isEnabled()) return;
+    this.writeEvent('timing', process, {
+      durationMs,
+      durationSec: Math.round(durationMs / 100) / 10,
+      ...data,
+    });
+  }
+
+  private writeEvent(type: SessionLogEventType, message: string, data?: Record<string, unknown>): void {
     const event: SessionLogEvent = {
       ts: Date.now(),
       sessionId: this.sessionId,
@@ -122,6 +150,7 @@ export class SessionLogService {
     const lines = readFileSync(this.logPath, 'utf-8').trim().split('\n').filter(Boolean);
     const counts: Record<string, number> = {};
     const errors: string[] = [];
+    const timings: Array<{ process: string; durationMs: number; durationSec?: number }> = [];
     let firstTs = 0;
     let lastTs = 0;
 
@@ -134,6 +163,13 @@ export class SessionLogService {
         if (event.type === 'error') {
           errors.push(event.message);
         }
+        if (event.type === 'timing' && typeof event.data?.durationMs === 'number') {
+          timings.push({
+            process: event.message,
+            durationMs: event.data.durationMs,
+            durationSec: typeof event.data.durationSec === 'number' ? event.data.durationSec : undefined,
+          });
+        }
       } catch {
         // skip malformed lines
       }
@@ -145,6 +181,16 @@ export class SessionLogService {
       .map(([k, v]) => `  ${k}: ${v}`)
       .join('\n');
 
+    const timingLines = timings
+      .sort((a, b) => b.durationMs - a.durationMs)
+      .map((t) => {
+        const sec = t.durationSec ?? Math.round(t.durationMs / 100) / 10;
+        return `  ${t.process}: ${sec}s (${t.durationMs}ms)`;
+      })
+      .join('\n');
+
+    const totalTimedMs = timings.reduce((sum, t) => sum + t.durationMs, 0);
+
     return [
       `# Thunder session log summary`,
       `session: ${this.sessionId}`,
@@ -155,6 +201,10 @@ export class SessionLogService {
       '',
       '## Event counts',
       countLines || '  (none)',
+      '',
+      timings.length > 0
+        ? `## Process timing (${Math.round(totalTimedMs / 100) / 10}s tracked)\n${timingLines}`
+        : '## Process timing\n  (none — enable session logging and retry)',
       '',
       errors.length > 0 ? `## Errors (${errors.length})\n${errors.map((e) => `- ${e}`).join('\n')}` : '## Errors\n  (none)',
       '',

@@ -102,6 +102,7 @@ export function App() {
               messages={state.messages}
               loading={state.loading}
               agentActivity={state.agentActivity}
+              agentLiveStatus={state.agentLiveStatus}
               approvals={state.approvals}
             />
           </div>

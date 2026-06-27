@@ -4,15 +4,22 @@ import type { ToolExecutor } from '../safety/ToolExecutor';
 import { formatToolResult } from '../tools/builtinTools';
 import { NO_TOOLS_AUDIT_NUDGE } from './taskKind';
 import type { PlanPhase, ThunderPlan } from '../planning/PlanActEngine';
+import { isPhaseLockWriteError } from '../planning/PlanActEngine';
 import { buildPlanTrackerPacket } from '../planning/PlanFileStore';
 import { createLogger } from '../telemetry/Logger';
 
 const log = createLogger('AgentLoop');
 
+const PHASE_LOCK_ESCALATION = `SYSTEM: File writes are blocked in the current read-only plan phase.
+Do NOT retry apply_patch or write_file in this step.
+If you finished analysis, summarize findings in plain text and stop — the orchestrator advances to the next step automatically.
+If edits are required now, state exactly what must change and which files are affected.`;
+
 export interface AgentLoopCallbacks {
   onToolStart?: (name: string, input: Record<string, unknown>) => void;
-  onToolEnd?: (name: string, success: boolean, output: string) => void;
+  onToolEnd?: (name: string, success: boolean, output: string, durationMs?: number) => void;
   onStep?: (step: number, maxSteps: number) => void;
+  onLlmStepComplete?: (step: number, durationMs: number, toolCallCount: number) => void;
   onAutoContinue?: (step: number) => void;
   onPostWriteValidation?: (relPath: string, output: string) => string | undefined | Promise<string | undefined>;
 }
@@ -90,7 +97,10 @@ export class AgentLoop {
     let auditNudgeUsed = false;
     let autoContinuesUsed = 0;
     let totalSteps = 0;
+    let phaseLockWriteFailures = 0;
     const hardLimit = maxSteps + maxAutoContinues * maxSteps;
+
+    this.toolExecutor.clearPlanPhaseLock?.();
 
     for (let step = 0; step < hardLimit; step++) {
       totalSteps = step + 1;
@@ -102,6 +112,7 @@ export class AgentLoop {
 
       let stepContent = '';
       const toolCallsMap = new Map<number, ToolCall>();
+      const llmStartedAt = Date.now();
 
       for await (const delta of provider.complete({
         messages,
@@ -141,6 +152,8 @@ export class AgentLoop {
         ? Array.from(toolCallsMap.entries()).sort(([a], [b]) => a - b).map(([, tc]) => tc)
         : undefined;
 
+      callbacks?.onLlmStepComplete?.(displayStep, Date.now() - llmStartedAt, toolCalls?.length ?? 0);
+
       if (!toolCalls || toolCalls.length === 0) {
         if (auditMode && stepContent && !auditNudgeUsed) {
           auditNudgeUsed = true;
@@ -169,21 +182,24 @@ export class AgentLoop {
             input = {};
           }
           callbacks?.onToolStart?.(tc.function.name, input);
+          const toolStartedAt = Date.now();
           const execResult = await this.toolExecutor.execute(tc.function.name, input, {
             toolCallId: tc.id,
             phaseLock: options?.phaseLock,
             restrictRunCommandToReadOnly: auditMode || options?.restrictRunCommandToReadOnly,
           });
-          return { tc, input, execResult };
+          return { tc, input, execResult, durationMs: Date.now() - toolStartedAt };
         })
       );
 
-      for (const { tc, input, execResult } of executions) {
+      let phaseLockFailuresThisTurn = 0;
+
+      for (const { tc, input, execResult, durationMs } of executions) {
         if (signal?.aborted) break;
 
         if (execResult.pendingApproval) {
           pendingApproval = true;
-          callbacks?.onToolEnd?.(tc.function.name, false, 'Awaiting approval');
+          callbacks?.onToolEnd?.(tc.function.name, false, 'Awaiting approval', durationMs);
           messages.push({
             role: 'tool',
             tool_call_id: tc.id,
@@ -197,7 +213,15 @@ export class AgentLoop {
           ? execResult.output
           : (execResult.error ?? 'Tool failed');
 
-        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500));
+        if (
+          !execResult.success &&
+          ['write_file', 'apply_patch'].includes(tc.function.name) &&
+          isPhaseLockWriteError(execResult.error)
+        ) {
+          phaseLockFailuresThisTurn += 1;
+        }
+
+        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500), durationMs);
 
         let toolContent = formatToolResult(tc.function.name, {
           success: execResult.success,
@@ -225,6 +249,14 @@ export class AgentLoop {
           name: tc.function.name,
           content: toolContent,
         });
+      }
+
+      if (phaseLockFailuresThisTurn > 0) {
+        phaseLockWriteFailures += phaseLockFailuresThisTurn;
+        if (phaseLockWriteFailures >= 2) {
+          messages.push({ role: 'user', content: PHASE_LOCK_ESCALATION });
+          phaseLockWriteFailures = 0;
+        }
       }
 
       if (pendingApproval) {
@@ -341,6 +373,7 @@ export class AgentLoop {
 
       let stepContent = '';
       const toolCallsMap = new Map<number, ToolCall>();
+      const llmStartedAt = Date.now();
 
       for await (const delta of provider.complete({
         messages,
@@ -380,6 +413,8 @@ export class AgentLoop {
         ? Array.from(toolCallsMap.entries()).sort(([a], [b]) => a - b).map(([, tc]) => tc)
         : undefined;
 
+      callbacks?.onLlmStepComplete?.(displayStep, Date.now() - llmStartedAt, toolCalls?.length ?? 0);
+
       if (!toolCalls || toolCalls.length === 0) {
         if (auditMode && stepContent && !auditNudgeUsed) {
           auditNudgeUsed = true;
@@ -408,21 +443,22 @@ export class AgentLoop {
             input = {};
           }
           callbacks?.onToolStart?.(tc.function.name, input);
+          const toolStartedAt = Date.now();
           const execResult = await this.toolExecutor.execute(tc.function.name, input, {
             toolCallId: tc.id,
             phaseLock: options.phaseLock,
             restrictRunCommandToReadOnly: options.restrictRunCommandToReadOnly,
           });
-          return { tc, input, execResult };
+          return { tc, input, execResult, durationMs: Date.now() - toolStartedAt };
         })
       );
 
-      for (const { tc, input, execResult } of executions) {
+      for (const { tc, input, execResult, durationMs } of executions) {
         if (signal?.aborted) break;
 
         if (execResult.pendingApproval) {
           pendingApproval = true;
-          callbacks?.onToolEnd?.(tc.function.name, false, 'Awaiting approval');
+          callbacks?.onToolEnd?.(tc.function.name, false, 'Awaiting approval', durationMs);
           messages.push({
             role: 'tool',
             tool_call_id: tc.id,
@@ -436,7 +472,7 @@ export class AgentLoop {
           ? execResult.output
           : (execResult.error ?? 'Tool failed');
 
-        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500));
+        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500), durationMs);
 
         let toolContent = formatToolResult(tc.function.name, {
           success: execResult.success,
@@ -545,16 +581,17 @@ export class AgentLoop {
             input = {};
           }
           callbacks?.onToolStart?.(tc.function.name, input);
+          const toolStartedAt = Date.now();
           const execResult = await this.toolExecutor.execute(tc.function.name, input, {
             phaseLock: options?.phaseLock,
             restrictRunCommandToReadOnly: options?.restrictRunCommandToReadOnly,
           });
           toolCallsMade += 1;
-          return { tc, execResult };
+          return { tc, execResult, durationMs: Date.now() - toolStartedAt };
         })
       );
 
-      for (const { tc, execResult } of executions) {
+      for (const { tc, execResult, durationMs } of executions) {
         if (signal?.aborted) break;
 
         if (execResult.pendingApproval) {
@@ -573,7 +610,7 @@ export class AgentLoop {
           ? execResult.output
           : (execResult.error ?? 'Tool failed');
 
-        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500));
+        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500), durationMs);
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,

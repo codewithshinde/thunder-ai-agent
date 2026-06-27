@@ -103,6 +103,7 @@ export function SettingsPanel({
   const [agentAutoContinue, setAgentAutoContinue] = useState(settings.agentAutoContinue);
   const [agentMaxAutoContinues, setAgentMaxAutoContinues] = useState(String(settings.agentMaxAutoContinues));
   const [researchAgentMaxSteps, setResearchAgentMaxSteps] = useState(String(settings.researchAgentMaxSteps));
+  const [showDiffPreview, setShowDiffPreview] = useState(settings.showDiffPreview);
   const [agentSaved, setAgentSaved] = useState(false);
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>(settings.approvalMode);
   const [safetySaved, setSafetySaved] = useState(false);
@@ -117,6 +118,7 @@ export function SettingsPanel({
     setAgentAutoContinue(settings.agentAutoContinue);
     setAgentMaxAutoContinues(String(settings.agentMaxAutoContinues));
     setResearchAgentMaxSteps(String(settings.researchAgentMaxSteps));
+    setShowDiffPreview(settings.showDiffPreview);
     setApprovalMode(settings.approvalMode);
   }, [settings]);
 
@@ -169,6 +171,7 @@ export function SettingsPanel({
       autoContinue: agentAutoContinue,
       maxAutoContinues,
       researchAgentMaxSteps: researchSteps,
+      showDiffPreview,
     });
     setAgentSaved(true);
     setTimeout(() => setAgentSaved(false), 2000);
@@ -385,6 +388,20 @@ export function SettingsPanel({
             </span>
             <span className="settings-hint">
               Lets the agent keep working after it spends the main step budget.
+            </span>
+          </label>
+
+          <label className="settings-toggle settings-toggle--rich">
+            <span className="settings-toggle-head">
+              <input
+                type="checkbox"
+                checked={showDiffPreview}
+                onChange={(e) => setShowDiffPreview(e.target.checked)}
+              />
+              <span>Open diff previews</span>
+            </span>
+            <span className="settings-hint">
+              Opens VS Code diff tabs before file edits. Leave off to keep the editor focused.
             </span>
           </label>
         </div>

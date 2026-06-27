@@ -55,6 +55,7 @@ export function readThunderConfigFromSettings(): ThunderConfig {
       orchestrationEnabled: config.get<boolean>('agent.orchestrationEnabled'),
       stepMaxRetries: config.get<number>('agent.stepMaxRetries'),
       finalValidationEnabled: config.get<boolean>('agent.finalValidationEnabled'),
+      showDiffPreview: config.get<boolean>('agent.showDiffPreview'),
     },
     mcp: {
       enabled: config.get<boolean>('mcp.enabled'),
@@ -65,6 +66,7 @@ export function readThunderConfigFromSettings(): ThunderConfig {
     },
     telemetry: {
       sessionLogging: config.get<boolean>('telemetry.sessionLogging'),
+      debugMetrics: config.get<boolean>('telemetry.debugMetrics'),
     },
   };
 

@@ -19,6 +19,7 @@ import { buildPrompt } from './planning/promptBuilder';
 import { parsePlanFromText, isWriteAllowed } from './planning/PlanActEngine';
 import { createLogger } from './telemetry/Logger';
 import type { SessionLogService } from './telemetry/SessionLogService';
+import { SessionTiming } from './telemetry/SessionTiming';
 import { extractFileMentions } from './context/fuzzyFileMatch';
 import { AutoApplyService } from './apply/AutoApplyService';
 import type { ToolExecutor } from './safety/ToolExecutor';
@@ -53,7 +54,8 @@ export type TokenUsageCallback = (
   promptTokens: number,
   contextTokens: number,
   responseText: string,
-  breakdown: TokenUsageBreakdownItem[]
+  breakdown: TokenUsageBreakdownItem[],
+  options?: { final?: boolean }
 ) => void;
 
 export interface ChatOrchestratorDeps {
@@ -174,6 +176,9 @@ export class ChatOrchestrator {
   ): AsyncIterable<string> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
+    const sessionLog = this.deps.sessionLog;
+    const sessionTiming = new SessionTiming();
+    sessionTiming.start('turn_total');
     this.setLiveStatus('Starting', `Mode: ${session.mode}`);
     this.emitActivity('info', `Mode: ${session.mode} · Provider: ${provider.id}`);
 
@@ -222,6 +227,7 @@ export class ChatOrchestrator {
     }
 
     let items;
+    sessionTiming.start('context_retrieval');
     try {
       items = await this.retriever.retrieve({
         text: userMessage,
@@ -231,11 +237,16 @@ export class ChatOrchestrator {
         maxItems: 28,
       });
     } catch (error) {
+      sessionTiming.end('context_retrieval', sessionLog, { success: false });
       const msg = error instanceof Error ? error.message : String(error);
       log.error('Context retrieval failed', { error: msg });
       this.emitActivity('error', 'Context retrieval failed', msg);
       throw error;
     }
+    sessionTiming.end('context_retrieval', sessionLog, {
+      success: true,
+      itemCount: items.length,
+    });
 
     const retrievedPaths = uniqueContextNames(items);
     this.emitActivity(
@@ -266,7 +277,11 @@ export class ChatOrchestrator {
       `Prompt context: ${displayPack.totalTokens}/${pack.budgetLimit} tokens · ${displayPack.items.length} snippets`,
       pack.dropped.length > 0 ? `${pack.dropped.length} dropped` : undefined
     );
-    this.deps.sessionLog?.append('context_pack', `Context ${displayPack.totalTokens}/${pack.budgetLimit} tokens`, {
+    this.deps.sessionLog?.append('info', `Context ${displayPack.totalTokens}/${pack.budgetLimit} tokens`, {
+      snippetCount: displayPack.items.length,
+      droppedCount: pack.dropped.length,
+    });
+    this.deps.sessionLog?.appendDebug('context_pack', `Context ${displayPack.totalTokens}/${pack.budgetLimit} tokens`, {
       snippetCount: displayPack.items.length,
       droppedCount: pack.dropped.length,
       sources: displayPack.items.map((i) => i.source).slice(0, 20),
@@ -276,7 +291,12 @@ export class ChatOrchestrator {
     });
 
     const transcriptBudget = Math.floor(provider.capabilities.contextWindow * 0.15);
+    sessionTiming.start('context_compaction');
     const compacted = await compactMessagesWithLlm(recentMessages, transcriptBudget, provider);
+    sessionTiming.end('context_compaction', sessionLog, {
+      before: recentMessages.length,
+      after: compacted.length,
+    });
     if (compacted.length < recentMessages.length) {
       this.emitActivity('info', `Compacted ${recentMessages.length - compacted.length} older messages`);
     }
@@ -358,7 +378,32 @@ export class ChatOrchestrator {
     this.saveTurn(session.id, 'user', userMessage);
 
     let fullResponse = '';
-    const sharedLoopCallbacks = this.buildLoopCallbacks();
+    let livePromptTokens = 0;
+    let livePromptMessages: ChatMessage[] | undefined;
+    let liveExplicitContextBlock = explicitResult.formatted || undefined;
+    const emitLiveTokenUsage = () => {
+      const messagesForBreakdown = livePromptMessages;
+      if (!messagesForBreakdown || livePromptTokens <= 0) return;
+      this.onTokenUsage?.(
+        livePromptTokens,
+        displayPack.totalTokens,
+        fullResponse,
+        this.buildTokenBreakdown(messagesForBreakdown, displayPack, compacted),
+        { final: false }
+      );
+    };
+    livePromptTokens = displayPack.totalTokens + Math.ceil(userMessage.length / 4);
+    livePromptMessages = [{ role: 'user', content: userMessage }];
+    emitLiveTokenUsage();
+    const sharedLoopCallbacks = this.buildLoopCallbacks(emitLiveTokenUsage);
+    const sharedPlanOptions = {
+      stepMaxRetries: agentConfig?.stepMaxRetries,
+      finalValidationEnabled: agentConfig?.finalValidationEnabled,
+      agentMaxSteps: agentConfig?.maxSteps,
+      restrictRunCommandToReadOnly: auditMode,
+      workspace: this.deps.workspace,
+      sessionLog,
+    };
 
     try {
       const activePlan = this.deps.planPersistence?.getActive(session.id);
@@ -372,6 +417,7 @@ export class ChatOrchestrator {
         this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
         this.setLiveStatus('Executing saved plan', plan.goal, 1, plan.steps.length);
         this.emitActivity('info', `Resuming saved plan (${plan.steps.length} steps)…`);
+        sessionTiming.start('plan_execution');
 
         for await (const chunk of this.planExecutor.executePlan(
           session,
@@ -382,18 +428,13 @@ export class ChatOrchestrator {
           (updated) => this.onPlan?.({ goal: updated.goal, assumptions: updated.assumptions, steps: updated.steps }),
           signal,
           sharedLoopCallbacks,
-          {
-            stepMaxRetries: agentConfig?.stepMaxRetries,
-            finalValidationEnabled: agentConfig?.finalValidationEnabled,
-            agentMaxSteps: agentConfig?.maxSteps,
-            restrictRunCommandToReadOnly: auditMode,
-            workspace: this.deps.workspace,
-          }
+          sharedPlanOptions
         )) {
           if (signal.aborted) break;
           fullResponse += chunk;
           yield chunk;
         }
+        sessionTiming.end('plan_execution', sessionLog, { resumed: true, stepCount: plan.steps.length });
 
         await this.finishTurn(session, provider, userMessage, fullResponse, displayPack, compacted);
         this.setLiveStatus(null);
@@ -410,6 +451,7 @@ export class ChatOrchestrator {
         if (toolsEnabled) {
           this.setLiveStatus('Planning discovery');
           this.emitActivity('info', 'Running read-only planning discovery…');
+          sessionTiming.start('planning_discovery');
           try {
             planningDiscovery = await this.planExecutor.runPlanningDiscovery(
               provider,
@@ -431,11 +473,16 @@ export class ChatOrchestrator {
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             this.emitActivity('error', 'Planning discovery failed; continuing with retrieved context', msg);
+          } finally {
+            sessionTiming.end('planning_discovery', sessionLog, {
+              hasOutput: Boolean(planningDiscovery),
+            });
           }
         }
 
         this.setLiveStatus('Analyzing requirements');
         this.emitActivity('info', 'Analyzing requirements…');
+        sessionTiming.start('requirement_analysis');
 
         const requirementHeader = '## Requirement analysis\n\n';
         yield requirementHeader;
@@ -453,9 +500,11 @@ export class ChatOrchestrator {
         }
         yield '\n\n';
         fullResponse += '\n\n';
+        sessionTiming.end('requirement_analysis', sessionLog);
 
         this.setLiveStatus('Creating plan');
         this.emitActivity('info', 'Planning multi-step task…');
+        sessionTiming.start('plan_generation');
 
         const requirementAnalysis = extractRequirementAnalysis(fullResponse);
 
@@ -473,6 +522,10 @@ export class ChatOrchestrator {
             useIsolatedPlanning: true,
           }
         );
+        sessionTiming.end('plan_generation', sessionLog, {
+          success: Boolean(plan),
+          stepCount: plan?.steps.length ?? 0,
+        });
         if (plan && plan.steps.length >= 1) {
           this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
           this.deps.planPersistence?.save(session.id, plan);
@@ -487,6 +540,7 @@ export class ChatOrchestrator {
             const planHeader = formatPlanHeader(plan);
             fullResponse += planHeader;
             yield planHeader;
+            sessionTiming.start('plan_execution');
 
             for await (const chunk of this.planExecutor.executePlan(
               session,
@@ -509,18 +563,15 @@ export class ChatOrchestrator {
               },
               signal,
               sharedLoopCallbacks,
-              {
-                stepMaxRetries: agentConfig?.stepMaxRetries,
-                finalValidationEnabled: agentConfig?.finalValidationEnabled,
-                agentMaxSteps: agentConfig?.maxSteps,
-                restrictRunCommandToReadOnly: auditMode,
-                workspace: this.deps.workspace,
-              }
+              sharedPlanOptions
             )) {
               if (signal.aborted) break;
               fullResponse += chunk;
               yield chunk;
             }
+            sessionTiming.end('plan_execution', sessionLog, {
+              stepCount: plan.steps.length,
+            });
 
             if (this.agentLoop?.hadPendingApproval()) {
               this.suspendContext = {
@@ -579,10 +630,15 @@ export class ChatOrchestrator {
         explicitResult.formatted || undefined
       );
       const promptTokens = estimatePromptTokens(messages);
+      livePromptTokens = promptTokens;
+      livePromptMessages = messages;
+      liveExplicitContextBlock = explicitResult.formatted || undefined;
+      emitLiveTokenUsage();
 
       if (toolsEnabled && this.agentLoop) {
         this.setLiveStatus('Agent running');
         this.emitActivity('info', auditMode ? 'Scanning project with tools…' : 'Agent loop started');
+        sessionTiming.start('direct_agent');
 
         for await (const chunk of this.agentLoop.run(
           provider,
@@ -599,8 +655,13 @@ export class ChatOrchestrator {
         )) {
           if (signal.aborted) break;
           fullResponse += chunk;
+          emitLiveTokenUsage();
           yield chunk;
         }
+        sessionTiming.end('direct_agent', sessionLog, {
+          auditMode,
+          pendingApproval: this.agentLoop.hadPendingApproval(),
+        });
 
         if (this.agentLoop.hadPendingApproval()) {
           this.suspendContext = {
@@ -652,6 +713,7 @@ export class ChatOrchestrator {
           )) {
             if (signal.aborted) break;
             fullResponse += chunk;
+            emitLiveTokenUsage();
             yield chunk;
           }
         }
@@ -662,6 +724,7 @@ export class ChatOrchestrator {
           if (signal.aborted) break;
           if (delta.content) {
             fullResponse += delta.content;
+            emitLiveTokenUsage();
             yield delta.content;
           }
           if (delta.error) throw new Error(delta.error);
@@ -677,10 +740,14 @@ export class ChatOrchestrator {
         compacted,
         promptTokens,
         messages,
-        explicitResult.formatted || undefined
+        liveExplicitContextBlock
       );
       this.onLiveStatus?.(null);
     } finally {
+      sessionTiming.end('turn_total', sessionLog, {
+        mode: session.mode,
+        responseLength: fullResponse.length,
+      });
       log.info('Chat completed', { sessionId: session.id, tokens: displayPack.totalTokens });
     }
   }
@@ -739,7 +806,13 @@ export class ChatOrchestrator {
       promptMessages ??
       buildPrompt(session.mode, pack, userMessage, compacted, false, false, undefined, false, explicitContextBlock);
     const tokens = promptTokens || estimatePromptTokens(usageMessages);
-    this.onTokenUsage?.(tokens, pack.totalTokens, fullResponse, this.buildTokenBreakdown(usageMessages, pack, compacted));
+    this.onTokenUsage?.(
+      tokens,
+      pack.totalTokens,
+      fullResponse,
+      this.buildTokenBreakdown(usageMessages, pack, compacted),
+      { final: true }
+    );
     this.deps.sessionLog?.append('token_usage', 'Turn token usage', {
       promptTokens: tokens,
       contextTokens: pack.totalTokens,
@@ -794,20 +867,26 @@ export class ChatOrchestrator {
     return summary ? `### Task state saved\n\n${summary}` : '';
   }
 
-  private buildLoopCallbacks(): import('./agent/AgentLoop').AgentLoopCallbacks {
+  private buildLoopCallbacks(onProgress?: () => void): import('./agent/AgentLoop').AgentLoopCallbacks {
     const lastToolInputs = new Map<string, Record<string, unknown>>();
+    const sessionLog = this.deps.sessionLog;
     return {
       onToolStart: (name, input) => {
         lastToolInputs.set(name, input);
-        this.deps.sessionLog?.append('tool_start', name, { input });
+        sessionLog?.append('tool_start', name, {
+          tool: name,
+          path: typeof input.path === 'string' ? input.path : undefined,
+        });
+        sessionLog?.appendDebug('tool_start', name, { input });
         void this.previewDiffIfWrite(name, input);
         const activity = describeToolActivity(name, input, 'start');
         this.setLiveStatus(activity.liveLabel, activity.detail);
         this.emitActivity(activity.kind, activity.message, activity.detail);
       },
-      onToolEnd: (name, success, output) => {
-        this.deps.sessionLog?.append('tool_end', name, {
+      onToolEnd: (name, success, output, durationMs) => {
+        sessionLog?.append('tool_end', name, {
           success,
+          durationMs,
           outputPreview: output?.slice(0, 500),
         });
         if (output === 'Awaiting approval') {
@@ -823,6 +902,11 @@ export class ChatOrchestrator {
       },
       onStep: (step, max) => {
         this.setLiveStatus('Agent step', `${step}/${max}`, step, max);
+        onProgress?.();
+      },
+      onLlmStepComplete: (step, durationMs, toolCallCount) => {
+        sessionLog?.appendTiming('llm_step', durationMs, { step, toolCallCount });
+        sessionLog?.appendDebug('info', 'LLM step complete', { step, durationMs, toolCallCount });
       },
       onAutoContinue: (round) => {
         this.emitActivity('info', `Auto-continuing agent loop (round ${round})`);
@@ -846,6 +930,7 @@ export class ChatOrchestrator {
   private async previewDiffIfWrite(name: string, input: Record<string, unknown>): Promise<void> {
     const workspace = this.deps.workspace;
     if (!workspace) return;
+    if (!(this.deps.agentConfig?.showDiffPreview ?? false)) return;
 
     if (name === 'write_file' && typeof input.path === 'string' && typeof input.content === 'string') {
       try {

@@ -2,7 +2,13 @@ import type { LlmProvider } from '../llm/types';
 import type { ToolDefinition } from '../llm/toolTypes';
 import type { ThunderSession } from '../ThunderSession';
 import type { PlanPhase, ThunderPlan } from '../planning/PlanActEngine';
+import {
+  inferStepPhase,
+  resolveStepPhaseLock,
+  stepImpliesWrite,
+} from '../planning/PlanActEngine';
 import type { PlanPersistence } from '../planning/PlanPersistence';
+import type { SessionLogService } from '../telemetry/SessionLogService';
 import type { AgentLoop } from './AgentLoop';
 import type { AgentLoopCallbacks } from './AgentLoop';
 import type { ContextPack } from '../context/types';
@@ -32,6 +38,7 @@ export interface PlanExecutorOptions {
   restrictRunCommandToReadOnly?: boolean;
   workspace?: string;
   useIsolatedPlanning?: boolean;
+  sessionLog?: SessionLogService;
 }
 
 export interface StepExecutionResult {
@@ -122,7 +129,7 @@ export class PlanExecutor {
         if (delta.error) throw new Error(delta.error);
       }
 
-      const plan = parseGeneratedPlan(response);
+      const plan = parseGeneratedPlan(response, mode);
       if (!plan) {
         repairNotes = '- Response did not contain valid plan JSON with goal and steps/phases.';
         continue;
@@ -231,21 +238,34 @@ export class PlanExecutor {
         this.planPersistence.updatePlan(session.id, plan, 'running');
         onPlanUpdate?.(plan);
 
+        const stepStartedAt = Date.now();
         const messages =
           attempt === 0
             ? buildStepPrompt(session.mode, pack, plan, step, this.stepSummaries)
             : buildStepRetryPrompt(session.mode, pack, plan, step, this.stepSummaries, lastValidationErrors);
 
         let stepOutput = '';
+        let successfulWrites = 0;
+        const phaseLock = resolveStepPhaseLock(step, session.mode);
+        const writeExpected = stepImpliesWrite(step) && session.mode === 'act';
+
         for await (const chunk of this.agentLoop.run(
           provider,
           messages,
           tools,
           signal,
-          loopCallbacks,
+          {
+            ...loopCallbacks,
+            onToolEnd: (name, success, output) => {
+              loopCallbacks?.onToolEnd?.(name, success, output);
+              if (success && ['write_file', 'apply_patch'].includes(name)) {
+                successfulWrites += 1;
+              }
+            },
+          },
           {
             maxSteps: options?.agentMaxSteps,
-            phaseLock: step.phase,
+            phaseLock,
             restrictRunCommandToReadOnly: options?.restrictRunCommandToReadOnly,
             planTracker: plan,
           }
@@ -267,6 +287,21 @@ export class PlanExecutor {
           for (const f of step.files) this.touchedFiles.add(f);
         }
 
+        if (writeExpected && successfulWrites === 0 && !pendingApproval) {
+          lastValidationErrors = [
+            'This step requires file edits (write_file/apply_patch) but no writes succeeded.',
+            phaseLock === 'execute'
+              ? 'Review tool errors above and retry with a complete patch or write_file.'
+              : `Step was locked to ${phaseLock ?? 'unknown'} phase — writes may have been blocked.`,
+          ];
+          attempt += 1;
+          if (attempt <= maxRetries) {
+            yield `\n\n⚠️ No file changes were applied — retrying step (${attempt}/${maxRetries + 1})…\n`;
+            plan.steps[i] = { ...plan.steps[i], status: 'pending' };
+            continue;
+          }
+        }
+
         lastValidationErrors = await this.validateStepFiles(step.files ?? []);
         if (lastValidationErrors.length > 0) {
           attempt += 1;
@@ -285,6 +320,18 @@ export class PlanExecutor {
         const summary = summarizeStepOutput(stepOutput, step.title);
         this.stepSummaries.push(`Step ${i + 1} (${step.title}): ${summary}`);
         plan.steps[i] = { ...plan.steps[i], status: 'done' };
+        const stepDurationMs = Date.now() - stepStartedAt;
+        options?.sessionLog?.appendTiming(`plan_step:${step.id}`, stepDurationMs, {
+          title: step.title,
+          stepIndex: i + 1,
+          success: true,
+        });
+        options?.sessionLog?.append('plan_step', step.title, {
+          stepId: step.id,
+          stepIndex: i + 1,
+          status: 'done',
+          durationMs: stepDurationMs,
+        });
         this.planPersistence.updatePlan(session.id, plan, 'running');
         if (options?.workspace) {
           new PlanFileStore(options.workspace, session.id).markStepComplete(step.id);
@@ -397,16 +444,28 @@ export class PlanExecutor {
   }
 }
 
-function flattenPlanPhases(phases: NonNullable<ThunderPlan['phases']>): ThunderPlan['steps'] {
+function flattenPlanPhases(
+  phases: NonNullable<ThunderPlan['phases']>,
+  mode: ThunderSession['mode']
+): ThunderPlan['steps'] {
   const steps: ThunderPlan['steps'] = [];
   for (const phase of phases) {
-    const normalizedPhase = normalizePlanPhase(phase.phase) ?? inferPhaseFromTitle(phase.title);
+    const declaredPhase = normalizePlanPhase(phase.phase) ?? inferPhaseFromTitle(phase.title);
     for (const step of phase.steps ?? []) {
       steps.push({
         id: step.id ?? `step-${steps.length + 1}`,
         title: step.title,
         status: 'pending',
-        phase: normalizedPhase,
+        phase: resolveStepPhaseLock(
+          {
+            title: step.title,
+            objective: step.objective ?? phase.objective,
+            phase: declaredPhase,
+            tools: normalizeStringArray(step.tools),
+            files: step.files,
+          },
+          mode
+        ),
         objective: step.objective ?? phase.objective,
         tool: step.tool,
         args: step.args,
@@ -421,7 +480,7 @@ function flattenPlanPhases(phases: NonNullable<ThunderPlan['phases']>): ThunderP
   return steps;
 }
 
-function parseGeneratedPlan(response: string): ThunderPlan | null {
+function parseGeneratedPlan(response: string, mode: ThunderSession['mode'] = 'plan'): ThunderPlan | null {
   const jsonMatch =
     response.match(/```json\s*([\s\S]*?)\s*```/) ??
     response.match(/\{[\s\S]*"(?:phases|steps)"[\s\S]*\}/);
@@ -431,7 +490,7 @@ function parseGeneratedPlan(response: string): ThunderPlan | null {
     const raw = jsonMatch[1] ?? jsonMatch[0];
     const parsed = JSON.parse(raw) as ThunderPlan;
     if (parsed.goal && Array.isArray(parsed.phases)) {
-      parsed.steps = flattenPlanPhases(parsed.phases);
+      parsed.steps = flattenPlanPhases(parsed.phases, mode);
     }
     if (parsed.goal && Array.isArray(parsed.steps)) {
       parsed.assumptions = Array.isArray(parsed.assumptions) ? parsed.assumptions : [];
@@ -440,7 +499,16 @@ function parseGeneratedPlan(response: string): ThunderPlan | null {
         ...s,
         id: s.id ?? `step-${i + 1}`,
         status: s.status ?? 'pending',
-        phase: normalizePlanPhase(s.phase) ?? inferStepPhase(s.title, i),
+        phase: resolveStepPhaseLock(
+          {
+            title: s.title,
+            objective: typeof s.objective === 'string' ? s.objective : undefined,
+            phase: normalizePlanPhase(s.phase) ?? inferStepPhase(s.title, i),
+            tools: normalizeStringArray(s.tools),
+            files: normalizeStringArray(s.files),
+          },
+          mode
+        ),
         objective: typeof s.objective === 'string' ? s.objective : undefined,
         tool: typeof s.tool === 'string' ? s.tool : undefined,
         args: typeof s.args === 'object' && s.args !== null ? s.args as Record<string, unknown> : undefined,
@@ -518,20 +586,12 @@ function normalizePlanPhase(phase: unknown): PlanPhase | undefined {
   return undefined;
 }
 
-function inferStepPhase(title: string, index: number): PlanPhase {
-  const text = title.toLowerCase();
-  if (/\b(verify|test|lint|build|validate)\b/.test(text)) return 'verify';
-  if (/\b(execute|implement|edit|patch|write|remove|update|fix)\b/.test(text)) return 'execute';
-  if (/\b(review|cross-check|confirm|decide)\b/.test(text)) return 'review';
-  return index === 0 ? 'diagnostics' : 'execute';
-}
-
 function inferPhaseFromTitle(title: string): PlanPhase {
   const text = title.toLowerCase();
   if (text.includes('phase 1') || text.includes('diagnostic')) return 'diagnostics';
   if (text.includes('phase 2') || text.includes('review')) return 'review';
   if (text.includes('phase 4') || text.includes('verify')) return 'verify';
-  return 'execute';
+  return inferStepPhase(title, 0);
 }
 
 // Re-export for backward compatibility

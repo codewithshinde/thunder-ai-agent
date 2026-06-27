@@ -78,6 +78,11 @@
           "default": true,
           "description": "Write structured JSONL session logs to .thunder/logs/ for debugging and analysis."
         },
+        "thunder.telemetry.debugMetrics": {
+          "type": "boolean",
+          "default": false,
+          "description": "Capture extra session diagnostics (tool inputs, context sources, LLM step metadata). Process timing is always logged when session logging is on."
+        },
         "thunder.provider.type": {
           "type": "string",
           "enum": [
@@ -208,6 +213,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable the multi-step planner in Plan mode. Act mode uses a faster direct agent path by default."
+        },
+        "thunder.agent.showDiffPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open VS Code diff preview tabs before write_file/apply_patch tool calls. Disabled by default to avoid editor focus changes."
         },
         "thunder.mcp.enabled": {
           "type": "boolean",

@@ -155,12 +155,13 @@ export class ThunderController {
   }
 
   private configureSessionLogging(session: ThunderSession, workspace: string): void {
-    const enabled = this.configService.getConfig().telemetry.sessionLogging;
-    this.sessionLog.configure(workspace, session.id, enabled);
+    const telemetry = this.configService.getConfig().telemetry;
+    this.sessionLog.configure(workspace, session.id, telemetry.sessionLogging, telemetry.debugMetrics);
     this.sessionLog.writeSessionHeader({
       mode: session.mode,
       model: this.configService.getConfig().provider.model,
       provider: this.configService.getConfig().provider.type,
+      debugMetrics: telemetry.debugMetrics,
     });
   }
 
@@ -471,26 +472,39 @@ export class ThunderController {
       this.agentLiveStatus = status;
       this.notifyUi({ agentLiveStatus: status });
     });
-    orchestrator.setTokenUsageCallback((promptTokens, contextTokens, responseText, breakdown) => {
+    orchestrator.setTokenUsageCallback((promptTokens, contextTokens, responseText, breakdown, options) => {
       const responseTokens = Math.ceil(responseText.length / 4);
       const turnTokens = promptTokens + responseTokens;
       this.tokenUsage.lastPromptTokens = promptTokens;
       this.tokenUsage.lastContextTokens = contextTokens;
       this.tokenUsage.lastResponseTokens = responseTokens;
-      this.tokenUsage.sessionTotal += turnTokens;
-      this.tokenUsage.turnCount += 1;
+      if (options?.final !== false) {
+        this.tokenUsage.sessionTotal += turnTokens;
+        this.tokenUsage.turnCount += 1;
+      }
       this.tokenUsage.breakdown = breakdown;
       const config = this.configService.getConfig();
-      this.sessionLog.append('token_usage', 'Session token rollup', {
-        turnPromptTokens: promptTokens,
-        turnContextTokens: contextTokens,
-        turnResponseTokens: responseTokens,
-        sessionTotal: this.tokenUsage.sessionTotal,
-        turnCount: this.tokenUsage.turnCount,
-      });
+      if (options?.final !== false) {
+        this.sessionLog.append('token_usage', 'Session token rollup', {
+          turnPromptTokens: promptTokens,
+          turnContextTokens: contextTokens,
+          turnResponseTokens: responseTokens,
+          sessionTotal: this.tokenUsage.sessionTotal,
+          turnCount: this.tokenUsage.turnCount,
+        });
+      }
+      const visibleSessionTotal = options?.final === false
+        ? this.tokenUsage.sessionTotal + turnTokens
+        : this.tokenUsage.sessionTotal;
+      const visibleTurnCount = options?.final === false
+        ? this.tokenUsage.turnCount + 1
+        : this.tokenUsage.turnCount;
+
       this.notifyUi({
         tokenUsage: {
           ...this.tokenUsage,
+          sessionTotal: visibleSessionTotal,
+          turnCount: visibleTurnCount,
           contextWindow: config.provider.contextWindow,
         },
       });
@@ -668,6 +682,7 @@ export class ThunderController {
         agentAutoContinue: config.agent.autoContinue,
         agentMaxAutoContinues: config.agent.maxAutoContinues,
         researchAgentMaxSteps: config.agent.researchAgentMaxSteps,
+        showDiffPreview: config.agent.showDiffPreview,
         hasApiKey: Boolean(apiKey),
         mcpEnabled: config.mcp.enabled,
         mcpServers: this.mcpManager.getStatuses().length,
@@ -1350,6 +1365,7 @@ export class ThunderController {
       autoContinue: settings.autoContinue,
       maxAutoContinues: clamp(settings.maxAutoContinues, 0, 10),
       researchAgentMaxSteps: clamp(settings.researchAgentMaxSteps, 1, 50),
+      showDiffPreview: settings.showDiffPreview,
     });
 
     const config = this.configService.getConfig();

@@ -14,6 +14,7 @@ TOOLS: You have tools to read files, search code, run commands, write files, and
 - For unused exports/dead code: trust automated AST tools only (knip via audit-dead-code.sh, or npx knip / npx ts-prune). Do NOT manually grep for unused exports as the source of truth.
 - Prefer execute_workspace_script for known repo scripts (knip, depcheck, safe lint, checkpoint read/write). Search with search_script_catalog first if needed.
 - Prefer apply_patch for targeted logical blocks; use write_file for new files or full rewrites.
+- Never put shell commands such as git checkout, npm install, yarn build, or rm into write_file content. Use run_command for commands and write_file/apply_patch only for actual file contents.
 - Safe patching: in TSX/JSX, never replace isolated single lines inside a component. Patch the whole import block, whole object, whole hook block, or whole component/function block. Before patching, mentally verify brackets {}, parens (), tags <>, and required adjacent React props stay balanced.
 - Use run_command only for read-only inspection or project verification. During audit/cleanup tasks, use execute_workspace_script instead of hand-written shell.
 - Use use_skill to load a specific workspace skill playbook when the task matches one.
@@ -80,6 +81,7 @@ Rules:
 - Use correct relative paths from context.
 - Fix syntax, imports, and type errors proactively.
 - Prefer apply_patch for complete logical blocks; write_file for new files or full rewrites.
+- Never write a shell command into a source file. If the fix is to restore from git or run a package command, use run_command.
 - In TSX/JSX, never patch isolated single component lines. Patch the full import block, object, hook block, or component/function block.`,
     review: `You are in REVIEW mode. Inspect code in context.
 - Start with a brief verdict (1 sentence).

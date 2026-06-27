@@ -170,6 +170,7 @@ export interface SettingsView {
   agentAutoContinue: boolean;
   agentMaxAutoContinues: number;
   researchAgentMaxSteps: number;
+  showDiffPreview: boolean;
   hasApiKey: boolean;
   connectionStatus?: string;
   connectionOk?: boolean;
@@ -194,6 +195,7 @@ export interface AgentSettingsPayload {
   autoContinue: boolean;
   maxAutoContinues: number;
   researchAgentMaxSteps: number;
+  showDiffPreview: boolean;
 }
 
 export interface SafetySettingsPayload {
@@ -303,6 +305,7 @@ export type WebviewToExtensionMessage =
   | { type: 'clearPinnedContext' }
   | { type: 'searchContextPaths'; payload: { query: string; requestId: string } }
   | { type: 'pickContextPath' }
+  | { type: 'refreshPanels' };
 
 export const defaultContextToggles = (): ContextToggles => ({
   repoMap: true,
@@ -328,6 +331,7 @@ export const defaultSettingsView = (): SettingsView => ({
   agentAutoContinue: true,
   agentMaxAutoContinues: 2,
   researchAgentMaxSteps: 6,
+  showDiffPreview: false,
   hasApiKey: false,
   mcpEnabled: true,
   mcpServers: 0,
