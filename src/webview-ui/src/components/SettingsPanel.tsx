@@ -428,11 +428,11 @@ export function SettingsPanel({
           <>
             <SettingsCard
               title="Model Context Protocol (MCP)"
-              description="Connect external tools from MCP servers configured in VS Code settings or workspace mcp.json files."
+              description="Built-in free servers (filesystem, memory, sequential-thinking) start automatically. Add more via VS Code settings or workspace mcp.json."
             >
               <SettingSwitch
                 label="Enable MCP"
-                description="Load tools from thunder.mcp.servers, .thunder/mcp.json, and .mcp.json."
+                description="Load built-in servers plus thunder.mcp.servers, .thunder/mcp.json, and .mcp.json."
                 checked={mcpEnabled}
                 onChange={(v) => {
                   setMcpEnabled(v);
@@ -460,7 +460,10 @@ export function SettingsPanel({
                   {settings.mcpServerStatuses.map((server) => (
                     <li key={server.name} className="settings-mcp-item">
                       <span className={`settings-mcp-dot ${server.connected ? 'settings-mcp-dot--ok' : 'settings-mcp-dot--err'}`} />
-                      <span className="settings-mcp-name">{server.name}</span>
+                      <span className="settings-mcp-name">
+                        {server.name}
+                        {server.builtin ? <span className="settings-mcp-badge">built-in</span> : null}
+                      </span>
                       <span className="settings-mcp-meta">
                         {server.connected
                           ? `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`
@@ -471,8 +474,9 @@ export function SettingsPanel({
                 </ul>
               ) : (
                 <p className="settings-inline-note">
-                  No MCP servers configured. Add servers in VS Code settings under{' '}
-                  <code>thunder.mcp.servers</code> or commit <code>.thunder/mcp.json</code>.
+                  No MCP servers connected yet. Built-in servers start when a workspace folder is open.
+                  Add more in VS Code settings under <code>thunder.mcp.servers</code> or{' '}
+                  <code>.thunder/mcp.json</code>.
                 </p>
               )}
             </SettingsCard>

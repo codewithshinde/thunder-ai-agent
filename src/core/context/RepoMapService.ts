@@ -3,7 +3,7 @@ import { computePageRank } from './pageRank';
 
 export interface RepoMapEntry {
   relPath: string;
-  symbols: Array<{ name: string; kind: string; exported?: boolean }>;
+  symbols: Array<{ name: string; kind: string; exported?: boolean; signature?: string | null }>;
   score: number;
   pageRank: number;
   importCount: number;
@@ -168,7 +168,7 @@ export class RepoMapService {
     return computePageRank(nodes, edges, { personalization, iterations: 30 });
   }
 
-  private getSymbols(fileId: number): Array<{ name: string; kind: string; exported?: boolean }> {
+  private getSymbols(fileId: number): Array<{ name: string; kind: string; exported?: boolean; signature?: string | null }> {
     const rows = this.db.raw
       .prepare('SELECT name, kind, signature FROM symbols WHERE file_id = ? ORDER BY start_line LIMIT 30')
       .all(fileId) as Array<{ name: string; kind: string; signature: string | null }>;
@@ -179,6 +179,7 @@ export class RepoMapService {
       .map((r) => ({
         name: r.name,
         kind: r.kind,
+        signature: r.signature,
         exported: r.signature?.includes('export') ?? false,
       }));
   }
@@ -231,7 +232,8 @@ export class RepoMapService {
     const symLines = entry.symbols
       .map((s) => {
         const exportMark = s.exported ? ' (exported)' : '';
-        return `  ${s.kind} ${s.name}${exportMark}`;
+        const sig = s.signature ? ` — ${s.signature}` : '';
+        return `  ${s.kind} ${s.name}${exportMark}${sig}`;
       })
       .join('\n');
     return `${entry.relPath}\n${symLines}`;

@@ -3,6 +3,8 @@ import type { ThunderDb } from './ThunderDb';
 import { ChunkingService } from './ChunkingService';
 import { FtsIndex } from './FtsIndex';
 import { getExtractor, extractSymbolRefs } from './SymbolExtractor';
+import { hasWasmGrammar } from './languageRegistry';
+import { preloadWasmLanguage } from './TreeSitterService';
 import { extractImports, resolveImportTarget } from './ImportExtractor';
 import { createLogger } from '../telemetry/Logger';
 
@@ -88,6 +90,9 @@ export class IndexQueue {
     while (this.queue.length > 0 && !this.cancelled) {
       const job = this.queue.shift()!;
       try {
+        if (job.language && hasWasmGrammar(job.language)) {
+          await preloadWasmLanguage(job.language);
+        }
         this.indexFile(job);
       } catch (e) {
         this.failed++;
@@ -133,7 +138,7 @@ export class IndexQueue {
       }
 
       const extractor = getExtractor(job.language);
-      if (extractor) {
+      if (extractor && job.language) {
         const symbols = extractor.extract(content);
         const insertSymbol = this.db.raw.prepare(`
           INSERT INTO symbols (file_id, name, kind, signature, start_line, end_line)

@@ -9,6 +9,8 @@ export * from './WorkspaceScanner';
 export * from './ChunkingService';
 export * from './FtsIndex';
 export * from './SymbolExtractor';
+export * from './languageRegistry';
+export * from './TreeSitterService';
 export * from './IndexQueue';
 export * from './hash';
 export * from './fileUtils';

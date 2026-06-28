@@ -68,6 +68,8 @@ export const McpServerConfigSchema = z.object({
 
 export const McpConfigSchema = z.object({
   enabled: z.boolean().default(true),
+  preloadBuiltin: z.boolean().default(true),
+  maxConcurrentStartup: z.number().int().min(1).max(20).default(4),
   servers: z.record(McpServerConfigSchema).default({}),
 });
 

@@ -213,6 +213,7 @@ export interface McpServerStatusView {
   name: string;
   connected: boolean;
   toolCount: number;
+  builtin?: boolean;
   error?: string;
 }
 

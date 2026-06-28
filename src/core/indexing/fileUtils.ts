@@ -1,3 +1,5 @@
+import { detectLanguageFromPath } from './languageRegistry';
+
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.svg',
   '.woff', '.woff2', '.ttf', '.eot', '.otf',
@@ -9,20 +11,13 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 export function isBinaryByExtension(filePath: string): boolean {
-  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
+  const dot = filePath.lastIndexOf('.');
+  if (dot === -1) return false;
+  const ext = filePath.slice(dot).toLowerCase();
   return BINARY_EXTENSIONS.has(ext);
 }
 
+/** Detect language from file path using the 100+ extension registry. */
 export function detectLanguage(filePath: string): string | null {
-  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
-  const map: Record<string, string> = {
-    '.ts': 'typescript', '.tsx': 'typescript',
-    '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript',
-    '.py': 'python', '.java': 'java', '.go': 'go',
-    '.rs': 'rust', '.rb': 'ruby', '.php': 'php',
-    '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml',
-    '.md': 'markdown', '.css': 'css', '.html': 'html',
-    '.sql': 'sql', '.sh': 'shell',
-  };
-  return map[ext] ?? null;
+  return detectLanguageFromPath(filePath);
 }

@@ -283,4 +283,15 @@ export interface Config { key: string; }
 `, 'typescript');
     expect(symbols.some((s) => s.name === 'MyService')).toBe(true);
   });
+
+  it('extracts symbols via tree-sitter WASM when available', async () => {
+    const { initTreeSitter, preloadWasmLanguage } = await import('../src/core/indexing/TreeSitterService');
+    const { extractSymbols } = await import('../src/core/indexing/SymbolExtractor');
+    const ready = await initTreeSitter();
+    if (!ready) return;
+    await preloadWasmLanguage('python');
+    const symbols = extractSymbols('class Animal:\n  def speak(self): pass', 'python');
+    expect(symbols.some((s) => s.name === 'Animal')).toBe(true);
+    expect(symbols.some((s) => s.name === 'speak')).toBe(true);
+  });
 });

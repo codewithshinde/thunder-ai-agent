@@ -2125,6 +2125,21 @@ body,
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-mcp-badge {
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--thunder-muted);
+  border: 1px solid var(--thunder-border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  flex-shrink: 0;
 }
 
 .settings-mcp-meta {

@@ -59,6 +59,8 @@ export function readThunderConfigFromSettings(): ThunderConfig {
     },
     mcp: {
       enabled: config.get<boolean>('mcp.enabled'),
+      preloadBuiltin: config.get<boolean>('mcp.preloadBuiltin'),
+      maxConcurrentStartup: config.get<number>('mcp.maxConcurrentStartup'),
       servers: config.get<Record<string, unknown>>('mcp.servers'),
     },
     workspace: {

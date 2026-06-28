@@ -1,11 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { IgnoreService } from '../src/core/indexing/IgnoreService';
 import { ChunkingService } from '../src/core/indexing/ChunkingService';
 import { sanitizeFtsQuery } from '../src/core/indexing/FtsIndex';
-import { tsExtractor, pythonExtractor } from '../src/core/indexing/SymbolExtractor';
+import { tsExtractor, pythonExtractor, extractSymbols } from '../src/core/indexing/SymbolExtractor';
+import {
+  detectLanguageFromPath,
+  getSupportedExtensionCount,
+  getWasmLanguageIds,
+  hasWasmGrammar,
+} from '../src/core/indexing/languageRegistry';
+import { detectLanguage } from '../src/core/indexing/fileUtils';
 import { isDangerousCommand, isDeleteLikeCommand } from '../src/core/safety/ToolPolicyEngine';
 import { ToolPolicyEngine } from '../src/core/safety/ToolPolicyEngine';
 import { ContextBudgeter } from '../src/core/context/ContextBudgeter';
@@ -108,6 +115,53 @@ describe('SymbolExtractor', () => {
     const symbols = pythonExtractor.extract(content);
     expect(symbols.some((s) => s.name === 'MyClass')).toBe(true);
     expect(symbols.some((s) => s.name === 'my_func')).toBe(true);
+  });
+
+  it('extracts Rust symbols via regex fallback', () => {
+    const content = 'pub fn hello() {}\npub struct World;\npub enum Color { Red }';
+    const symbols = extractSymbols(content, 'rust');
+    expect(symbols.some((s) => s.name === 'hello')).toBe(true);
+    expect(symbols.some((s) => s.name === 'World')).toBe(true);
+    expect(symbols.some((s) => s.name === 'Color')).toBe(true);
+  });
+
+  it('extracts Ruby symbols via regex fallback', () => {
+    const content = 'class User\n  def greet\n  end\nend';
+    const symbols = extractSymbols(content, 'ruby');
+    expect(symbols.some((s) => s.name === 'User')).toBe(true);
+    expect(symbols.some((s) => s.name === 'greet')).toBe(true);
+  });
+
+  it('extracts Haskell symbols via regex fallback', () => {
+    const content = 'data Tree a = Leaf | Node a (Tree a)\nmyFunc :: Int -> Int';
+    const symbols = extractSymbols(content, 'haskell');
+    expect(symbols.some((s) => s.name === 'Tree')).toBe(true);
+    expect(symbols.some((s) => s.name === 'myFunc')).toBe(true);
+  });
+});
+
+describe('languageRegistry', () => {
+  it('supports 100+ file extensions', () => {
+    expect(getSupportedExtensionCount()).toBeGreaterThanOrEqual(100);
+  });
+
+  it('detects common and niche languages', () => {
+    expect(detectLanguageFromPath('src/main.rs')).toBe('rust');
+    expect(detectLanguageFromPath('lib/kotlin/App.kt')).toBe('kotlin');
+    expect(detectLanguageFromPath('contracts/token.sol')).toBe('solidity');
+    expect(detectLanguageFromPath('schema/query.sql')).toBe('sql');
+    expect(detectLanguageFromPath('infra/main.tf')).toBe('hcl');
+    expect(detectLanguage('Dockerfile')).toBe('dockerfile');
+  });
+
+  it('maps tree-sitter WASM grammars for key languages', () => {
+    const wasmLangs = getWasmLanguageIds();
+    expect(wasmLangs).toContain('typescript');
+    expect(wasmLangs).toContain('rust');
+    expect(wasmLangs).toContain('swift');
+    expect(wasmLangs.length).toBeGreaterThanOrEqual(30);
+    expect(hasWasmGrammar('rust')).toBe(true);
+    expect(hasWasmGrammar('haskell')).toBe(false);
   });
 });
 
@@ -221,6 +275,67 @@ describe('ContextBudgeter', () => {
 describe('Token estimate', () => {
   it('estimates tokens', () => {
     expect(estimateTokens('hello world')).toBeGreaterThan(0);
+  });
+});
+
+describe('Thunder config', () => {
+  it('defaults MCP bulk startup concurrency', () => {
+    expect(defaultThunderConfig().mcp.maxConcurrentStartup).toBe(4);
+  });
+
+  it('preloads built-in MCP servers by default', () => {
+    expect(defaultThunderConfig().mcp.preloadBuiltin).toBe(true);
+  });
+});
+
+describe('Builtin MCP servers', () => {
+  it('builds free official servers for a workspace', async () => {
+    const { buildBuiltinMcpServers } = await import('../src/core/mcp/builtinServers');
+    const servers = buildBuiltinMcpServers('/tmp/my-project');
+
+    expect(Object.keys(servers).sort()).toEqual(['filesystem', 'memory', 'sequential-thinking']);
+    expect(servers.filesystem.command).toBe(process.platform === 'win32' ? 'cmd' : 'npx');
+    expect(servers.filesystem.args).toContain('@modelcontextprotocol/server-filesystem');
+    expect(servers.filesystem.args.at(-1)).toBe(resolve('/tmp/my-project'));
+    expect(servers.memory.args).toContain('@modelcontextprotocol/server-memory');
+    expect(servers['sequential-thinking'].args).toContain('@modelcontextprotocol/server-sequential-thinking');
+  });
+
+  it('omits filesystem when workspace is empty', async () => {
+    const { buildBuiltinMcpServers } = await import('../src/core/mcp/builtinServers');
+    const servers = buildBuiltinMcpServers('');
+    expect(Object.keys(servers).sort()).toEqual(['memory', 'sequential-thinking']);
+  });
+
+  it('lets user settings override built-in servers', async () => {
+    const { resolveMcpServers } = await import('../src/core/mcp/McpManager');
+    const config = defaultThunderConfig();
+    const servers = resolveMcpServers(
+      {
+        ...config.mcp,
+        servers: {
+          memory: {
+            disabled: true,
+            type: 'stdio',
+            command: 'custom',
+            args: ['memory'],
+            env: {},
+            timeoutMs: 60_000,
+          },
+        },
+      },
+      '/tmp/project'
+    );
+
+    expect(servers.memory.command).toBe('custom');
+    expect(servers.filesystem.command).toBe(process.platform === 'win32' ? 'cmd' : 'npx');
+  });
+
+  it('skips built-ins when preloadBuiltin is false', async () => {
+    const { resolveMcpServers } = await import('../src/core/mcp/McpManager');
+    const config = defaultThunderConfig();
+    const servers = resolveMcpServers({ ...config.mcp, preloadBuiltin: false }, '/tmp/project');
+    expect(servers).toEqual({});
   });
 });
 

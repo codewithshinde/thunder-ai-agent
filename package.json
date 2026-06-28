@@ -222,7 +222,19 @@
         "thunder.mcp.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Model Context Protocol servers configured in thunder.mcp.servers, .thunder/mcp.json, or .mcp.json."
+          "description": "Enable Model Context Protocol servers. Built-in free servers start automatically unless thunder.mcp.preloadBuiltin is false."
+        },
+        "thunder.mcp.preloadBuiltin": {
+          "type": "boolean",
+          "default": true,
+          "description": "Preload official free MCP servers (filesystem, memory, sequential-thinking) on extension startup. Override or disable individual servers via thunder.mcp.servers or workspace mcp.json."
+        },
+        "thunder.mcp.maxConcurrentStartup": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Maximum MCP stdio servers Thunder starts at the same time."
         },
         "thunder.mcp.servers": {
           "type": "object",
@@ -302,7 +314,10 @@
     "tree-sitter-typescript": "^0.23.2",
     "tree-sitter-javascript": "^0.23.1",
     "tree-sitter-python": "^0.23.4",
-    "tree-sitter-go": "^0.23.4"
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-java": "^0.23.2",
+    "web-tree-sitter": "^0.24.7",
+    "tree-sitter-wasms": "^0.1.13"
   },
   "knip": {
     "ignoreDependencies": [

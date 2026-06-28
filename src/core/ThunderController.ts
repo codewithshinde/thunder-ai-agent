@@ -9,6 +9,7 @@ import { IgnoreService } from './indexing/IgnoreService';
 import { FileDiscoveryService } from './indexing/FileDiscoveryService';
 import { WorkspaceScanner } from './indexing/WorkspaceScanner';
 import { IndexQueue } from './indexing/IndexQueue';
+import { initTreeSitter, preloadCommonLanguages } from './indexing/TreeSitterService';
 import { FtsIndex } from './indexing/FtsIndex';
 import { HybridRetriever } from './context/HybridRetriever';
 import { ContextBudgeter } from './context/ContextBudgeter';
@@ -264,6 +265,9 @@ export class ThunderController {
       new HashEmbeddingProvider()
     );
     this.indexQueue = new IndexQueue(db);
+    void initTreeSitter().then((ready) => {
+      if (ready) void preloadCommonLanguages();
+    });
     this.indexQueue.onStatusChange((status) => {
       this.indexingStatus = status;
       this.notifyUi({ indexing: status });
@@ -691,6 +695,7 @@ export class ThunderController {
           name: s.name,
           connected: s.connected,
           toolCount: s.toolCount,
+          builtin: s.builtin,
           error: s.error,
         })),
         projectRules: this.projectRulesService?.count() ?? 0,

@@ -65,7 +65,17 @@ Store API keys via the settings UI (uses VS Code SecretStorage).
 
 ### MCP servers
 
-Thunder loads stdio MCP servers from VS Code settings:
+Thunder preloads **free, keyless** official MCP servers on startup (like a built-in marketplace):
+
+| Server | Package | Notes |
+|--------|---------|-------|
+| `filesystem` | `@modelcontextprotocol/server-filesystem` | Scoped to the open workspace root |
+| `memory` | `@modelcontextprotocol/server-memory` | Persistent knowledge graph across sessions |
+| `sequential-thinking` | `@modelcontextprotocol/server-sequential-thinking` | Structured reasoning helper |
+
+Disable all built-ins with `"thunder.mcp.preloadBuiltin": false`, or override a single server by reusing its name in settings or workspace config.
+
+Thunder also loads stdio MCP servers from VS Code settings:
 
 ```json
 "thunder.mcp.servers": {
@@ -84,6 +94,30 @@ You can also commit workspace-local MCP config in `.thunder/mcp.json` or `.mcp.j
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"]
+    }
+  }
+}
+```
+
+For bulk startup, add every server under `mcpServers`; Thunder auto-loads all
+enabled entries when the extension initializes or settings reload. Startup is
+parallelized and capped by `thunder.mcp.maxConcurrentStartup`:
+
+```json
+{
+  "thunder.mcp.maxConcurrentStartup": 4,
+  "thunder.mcp.servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    },
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
     }
   }
 }

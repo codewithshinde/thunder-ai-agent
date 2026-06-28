@@ -7,6 +7,7 @@ import type { Tool as McpSdkTool } from '@modelcontextprotocol/sdk/types.js';
 import type { ToolRuntime } from '../tools/ToolRuntime';
 import type { Tool, ToolResult } from '../tools/types';
 import type { McpConfig, McpServerConfig } from '../config/schema';
+import { buildBuiltinMcpServers, isBuiltinMcpServerName } from './builtinServers';
 import { createLogger } from '../telemetry/Logger';
 
 const log = createLogger('McpManager');
@@ -16,6 +17,7 @@ export interface McpServerStatus {
   name: string;
   connected: boolean;
   toolCount: number;
+  builtin?: boolean;
   error?: string;
 }
 
@@ -49,34 +51,33 @@ export class McpManager {
 
     if (!config.enabled) return;
 
-    const servers = {
-      ...config.servers,
-      ...loadWorkspaceMcpServers(workspace),
-    };
+    const servers = resolveMcpServers(config, workspace);
 
-    for (const [name, serverConfig] of Object.entries(servers)) {
+    await runWithConcurrency(Object.entries(servers), config.maxConcurrentStartup, async ([name, serverConfig]) => {
+      const builtin = config.preloadBuiltin && isBuiltinMcpServerName(name);
+
       if (serverConfig.disabled) {
-        this.statuses.set(name, { name, connected: false, toolCount: 0, error: 'Disabled' });
-        continue;
+        this.statuses.set(name, { name, connected: false, toolCount: 0, builtin, error: 'Disabled' });
+        return;
       }
       if (!serverConfig.command.trim()) {
-        this.statuses.set(name, { name, connected: false, toolCount: 0, error: 'Missing command' });
-        continue;
+        this.statuses.set(name, { name, connected: false, toolCount: 0, builtin, error: 'Missing command' });
+        return;
       }
 
       try {
         const connected = await this.connectServer(name, serverConfig, workspace);
         this.servers.set(name, connected);
-        this.statuses.set(name, { name, connected: true, toolCount: connected.tools.length });
+        this.statuses.set(name, { name, connected: true, toolCount: connected.tools.length, builtin });
         for (const tool of connected.tools) {
           toolRuntime.register(this.createThunderTool(name, tool));
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        this.statuses.set(name, { name, connected: false, toolCount: 0, error: message });
+        this.statuses.set(name, { name, connected: false, toolCount: 0, builtin, error: message });
         log.warn('MCP server failed', { server: name, error: message });
       }
-    }
+    });
   }
 
   async closeAll(): Promise<void> {
@@ -174,6 +175,15 @@ function sanitizeEnv(env: Record<string, string | undefined>): Record<string, st
   return out;
 }
 
+export function resolveMcpServers(config: McpConfig, workspace: string): Record<string, McpServerConfig> {
+  const builtin = config.preloadBuiltin ? buildBuiltinMcpServers(workspace) : {};
+  return {
+    ...builtin,
+    ...config.servers,
+    ...loadWorkspaceMcpServers(workspace),
+  };
+}
+
 function loadWorkspaceMcpServers(workspace: string): Record<string, McpServerConfig> {
   if (!workspace) return {};
   const files = [join(workspace, '.thunder', 'mcp.json'), join(workspace, '.mcp.json')];
@@ -207,6 +217,26 @@ function normalizeMcpServerConfig(value: Partial<McpServerConfig>): McpServerCon
     cwd: value.cwd,
     timeoutMs: value.timeoutMs ?? 60_000,
   };
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await worker(item);
+    }
+  });
+
+  await Promise.all(workers);
 }
 
 function formatMcpResult(result: Awaited<ReturnType<Client['callTool']>>): string {
