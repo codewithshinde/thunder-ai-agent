@@ -6,7 +6,7 @@ import type {
   TokenUsageView,
 } from '../../../vscode/webview/messages';
 import { IconButton } from './IconButton';
-import { IconChevronDown, IconCopy, IconRetry, IconSend, IconStop } from './Icons';
+import { IconChevronDown, IconCopy, IconMarkdown, IconRetry, IconSend, IconStop } from './Icons';
 import { TokenMeter } from './TokenMeter';
 
 interface ChatInputProps {
@@ -20,6 +20,8 @@ interface ChatInputProps {
   onModeChange: (mode: ThunderMode) => void;
   onRetry?: () => void;
   onCopyResponse?: () => void;
+  onCopyChatHistory?: () => void;
+  canCopyChatHistory?: boolean;
   onAddPinned: (path: string, kind: 'file' | 'folder') => void;
   onSearchPaths: (query: string, requestId: string) => void;
   pathSuggestions: ContextPathSuggestion[];
@@ -43,6 +45,8 @@ export function ChatInput({
   onModeChange,
   onRetry,
   onCopyResponse,
+  onCopyChatHistory,
+  canCopyChatHistory = false,
   onAddPinned,
   onSearchPaths,
   pathSuggestions,
@@ -223,6 +227,16 @@ export function ChatInput({
             {onCopyResponse && (
               <IconButton label="Copy last response" variant="ghost" onClick={onCopyResponse} disabled={loading}>
                 <IconCopy />
+              </IconButton>
+            )}
+            {onCopyChatHistory && (
+              <IconButton
+                label="Copy chat as Markdown"
+                variant="ghost"
+                onClick={onCopyChatHistory}
+                disabled={!canCopyChatHistory}
+              >
+                <IconMarkdown />
               </IconButton>
             )}
             {loading ? (

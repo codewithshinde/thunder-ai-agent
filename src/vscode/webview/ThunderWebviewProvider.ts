@@ -255,6 +255,16 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         await this.syncState();
         break;
 
+      case 'saveMcpSettings':
+        await this.controller.saveMcpSettings(message.payload);
+        await this.syncState();
+        break;
+
+      case 'saveAllSettings':
+        await this.controller.saveAllSettings(message.payload);
+        await this.syncState();
+        break;
+
       case 'testProviderConnection':
         await this.controller.testProviderConnection(message.payload);
         break;
@@ -308,6 +318,15 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         const lastAssistant = [...this.state.messages].reverse().find((m) => m.role === 'assistant');
         if (lastAssistant?.content) {
           await vscode.env.clipboard.writeText(lastAssistant.content);
+        }
+        break;
+      }
+
+      case 'copyChatHistoryMarkdown': {
+        const markdown = formatChatHistoryMarkdown(this.state.messages);
+        if (markdown) {
+          await vscode.env.clipboard.writeText(markdown);
+          void vscode.window.setStatusBarMessage('Thunder: chat history copied as Markdown', 2500);
         }
         break;
       }
@@ -663,6 +682,36 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
   <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+}
+
+function formatChatHistoryMarkdown(messages: ChatMessage[]): string {
+  const visible = messages.filter((message) => message.content.trim());
+  if (visible.length === 0) return '';
+
+  const lines = [
+    '# Thunder Chat History',
+    '',
+    `Exported: ${new Date().toISOString()}`,
+    '',
+  ];
+
+  for (const message of visible) {
+    lines.push(`## ${roleTitle(message.role)}`, '');
+    lines.push(message.content.trim(), '');
+  }
+
+  return lines.join('\n').trimEnd() + '\n';
+}
+
+function roleTitle(role: ChatMessage['role']): string {
+  switch (role) {
+    case 'assistant':
+      return 'Assistant';
+    case 'system':
+      return 'System';
+    case 'user':
+      return 'User';
   }
 }
 

@@ -1,9 +1,23 @@
 import * as vscode from 'vscode';
 import { createLogger } from '../telemetry/Logger';
 import { readThunderConfigFromSettings } from './vscodeSettings';
-import { updateProviderSettings, updateAgentSettings, updateSafetySettings, updateWorkspaceOverride, clearWorkspaceOverride } from './updateSettings';
+import {
+  updateProviderSettings,
+  updateAgentSettings,
+  updateSafetySettings,
+  updateMcpSettings,
+  updateAllSettings,
+  updateWorkspaceOverride,
+  clearWorkspaceOverride,
+} from './updateSettings';
 import { type ThunderConfig, defaultThunderConfig } from './schema';
-import type { AgentSettingsPayload, ProviderSettingsPayload, SafetySettingsPayload } from '../../vscode/webview/messages';
+import type {
+  AgentSettingsPayload,
+  McpSettingsPayload,
+  ProviderSettingsPayload,
+  SafetySettingsPayload,
+  ThunderSettingsPayload,
+} from '../../vscode/webview/messages';
 
 const log = createLogger('ConfigService');
 const WORKSPACE_OVERRIDE_STATE_KEY = 'thunder.workspace.rootPathOverride';
@@ -84,6 +98,18 @@ export class ConfigService {
     await updateSafetySettings(settings);
     this.config = readThunderConfigFromSettings();
     log.info('Safety settings updated');
+  }
+
+  async updateMcpSettings(settings: McpSettingsPayload): Promise<void> {
+    await updateMcpSettings(settings);
+    this.config = readThunderConfigFromSettings();
+    log.info('MCP settings updated', { enabled: settings.enabled });
+  }
+
+  async updateAllSettings(settings: ThunderSettingsPayload): Promise<void> {
+    await updateAllSettings(settings);
+    this.config = readThunderConfigFromSettings();
+    log.info('All Thunder settings updated');
   }
 
   async setWorkspaceOverride(path: string): Promise<void> {

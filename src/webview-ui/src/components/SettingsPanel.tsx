@@ -1,45 +1,58 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type {
-  AgentSettingsPayload,
   ApprovalMode,
   ContextToggles,
   ProviderSettingsPayload,
   SafetySettingsPayload,
   SettingsView,
+  ThunderSettingsPayload,
   WorkspaceNoticeView,
 } from '../../../vscode/webview/messages';
 import { WorkspaceSettingsSection } from './WorkspaceSettingsSection';
-import { SettingNote } from './SettingNote';
+import { SettingsCard } from './SettingsCard';
+import { SettingSwitch } from './SettingSwitch';
+import { SettingStepper } from './SettingStepper';
+
+type SettingsTab = 'workspace' | 'model' | 'agent' | 'context' | 'integrations' | 'safety';
+
+const TABS: Array<{ id: SettingsTab; label: string }> = [
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'model', label: 'Model' },
+  { id: 'agent', label: 'Agent' },
+  { id: 'context', label: 'Context' },
+  { id: 'integrations', label: 'Integrations' },
+  { id: 'safety', label: 'Safety' },
+];
 
 const CONTEXT_TOGGLES: Array<{
   key: keyof ContextToggles;
   label: string;
-  why: string;
+  description: string;
 }> = [
   {
     key: 'repoMap',
     label: 'Repository map',
-    why: 'Compact symbol outline of the codebase so the model knows what files and exports exist.',
+    description: 'Symbol outline so the model knows what files and exports exist.',
   },
   {
     key: 'fts',
     label: 'Full-text search',
-    why: 'Keyword search over indexed files — best for finding symbols, imports, and strings.',
+    description: 'Keyword search over indexed files for symbols, imports, and strings.',
   },
   {
     key: 'gitDiff',
     label: 'Git diff',
-    why: 'Includes your uncommitted changes so the agent sees what you are already editing.',
+    description: 'Uncommitted changes so the agent sees what you are already editing.',
   },
   {
     key: 'diagnostics',
     label: 'Diagnostics',
-    why: 'Linter/TypeScript errors from VS Code. Enable when fixing bugs; off by default to avoid unrelated file noise.',
+    description: 'Linter and TypeScript errors. Enable when fixing bugs.',
   },
   {
     key: 'memory',
     label: 'Session memory',
-    why: 'Long-term notes from past tasks (decisions, conventions) injected into new chats.',
+    description: 'Notes from past tasks injected into new chats.',
   },
 ];
 
@@ -56,9 +69,7 @@ interface SettingsPanelProps {
   workspaceNotice: WorkspaceNoticeView | null;
   contextToggles: ContextToggles;
   onSaveApiKey: (key: string) => void;
-  onSaveProviderSettings: (settings: ProviderSettingsPayload) => void;
-  onSaveAgentSettings: (settings: AgentSettingsPayload) => void;
-  onSaveSafetySettings: (settings: SafetySettingsPayload) => void;
+  onSaveAllSettings: (settings: ThunderSettingsPayload) => void;
   onTestConnection: (settings: ProviderSettingsPayload) => void;
   onPickWorkspaceFolder: () => void;
   onSetWorkspaceOverride: (path: string) => void;
@@ -80,9 +91,7 @@ export function SettingsPanel({
   workspaceNotice,
   contextToggles,
   onSaveApiKey,
-  onSaveProviderSettings,
-  onSaveAgentSettings,
-  onSaveSafetySettings,
+  onSaveAllSettings,
   onTestConnection,
   onPickWorkspaceFolder,
   onSetWorkspaceOverride,
@@ -90,453 +99,443 @@ export function SettingsPanel({
   onIndex,
   onToggleContext,
 }: SettingsPanelProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('workspace');
   const [apiKey, setApiKey] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
   const [providerType, setProviderType] = useState<'echo' | 'openai-compatible'>(
     settings.providerType as 'echo' | 'openai-compatible'
   );
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
   const [model, setModel] = useState(settings.model);
-  const [contextWindow, setContextWindow] = useState(String(settings.contextWindow));
-  const [saved, setSaved] = useState(false);
+  const [contextWindow, setContextWindow] = useState(settings.contextWindow);
+
   const [subagentsEnabled, setSubagentsEnabled] = useState(settings.subagentsEnabled);
-  const [agentMaxSteps, setAgentMaxSteps] = useState(String(settings.agentMaxSteps));
+  const [agentMaxSteps, setAgentMaxSteps] = useState(settings.agentMaxSteps);
   const [agentAutoContinue, setAgentAutoContinue] = useState(settings.agentAutoContinue);
-  const [agentMaxAutoContinues, setAgentMaxAutoContinues] = useState(String(settings.agentMaxAutoContinues));
-  const [researchAgentMaxSteps, setResearchAgentMaxSteps] = useState(String(settings.researchAgentMaxSteps));
+  const [agentMaxAutoContinues, setAgentMaxAutoContinues] = useState(settings.agentMaxAutoContinues);
+  const [researchAgentMaxSteps, setResearchAgentMaxSteps] = useState(settings.researchAgentMaxSteps);
   const [showDiffPreview, setShowDiffPreview] = useState(settings.showDiffPreview);
-  const [agentSaved, setAgentSaved] = useState(false);
+
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>(settings.approvalMode);
-  const [safetySaved, setSafetySaved] = useState(false);
+  const [mcpEnabled, setMcpEnabled] = useState(settings.mcpEnabled);
 
   useEffect(() => {
     setProviderType(settings.providerType as 'echo' | 'openai-compatible');
     setBaseUrl(settings.baseUrl);
     setModel(settings.model);
-    setContextWindow(String(settings.contextWindow));
+    setContextWindow(settings.contextWindow);
     setSubagentsEnabled(settings.subagentsEnabled);
-    setAgentMaxSteps(String(settings.agentMaxSteps));
+    setAgentMaxSteps(settings.agentMaxSteps);
     setAgentAutoContinue(settings.agentAutoContinue);
-    setAgentMaxAutoContinues(String(settings.agentMaxAutoContinues));
-    setResearchAgentMaxSteps(String(settings.researchAgentMaxSteps));
+    setAgentMaxAutoContinues(settings.agentMaxAutoContinues);
+    setResearchAgentMaxSteps(settings.researchAgentMaxSteps);
     setShowDiffPreview(settings.showDiffPreview);
     setApprovalMode(settings.approvalMode);
+    setMcpEnabled(settings.mcpEnabled);
+    setDirty(false);
   }, [settings]);
 
-  const handleSaveKey = () => {
+  const markDirty = useCallback(() => setDirty(true), []);
+
+  const buildPayload = (): ThunderSettingsPayload | null => {
+    if (!baseUrl.trim() || !model.trim() || contextWindow < 1024) {
+      return null;
+    }
+    return {
+      provider: {
+        providerType,
+        baseUrl: baseUrl.trim(),
+        model: model.trim(),
+        contextWindow,
+      },
+      agent: {
+        subagentsEnabled,
+        maxSteps: agentMaxSteps,
+        autoContinue: agentAutoContinue,
+        maxAutoContinues: agentMaxAutoContinues,
+        researchAgentMaxSteps,
+        showDiffPreview,
+      },
+      safety: deriveSafetySettings(approvalMode),
+      mcp: { enabled: mcpEnabled },
+    };
+  };
+
+  const handleSaveAll = () => {
+    const payload = buildPayload();
+    if (!payload) return;
+    onSaveAllSettings(payload);
     if (apiKey.trim()) {
       onSaveApiKey(apiKey.trim());
       setApiKey('');
     }
-  };
-
-  const handleSaveProvider = () => {
-    const parsedContext = parseInt(contextWindow, 10);
-    if (!baseUrl.trim() || !model.trim() || isNaN(parsedContext) || parsedContext < 1024) {
-      return;
-    }
-    onSaveProviderSettings({
-      providerType,
-      baseUrl: baseUrl.trim(),
-      model: model.trim(),
-      contextWindow: parsedContext,
-    });
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setDirty(false);
+    setTimeout(() => setSaved(false), 2500);
   };
 
-  const currentProviderSettings = (): ProviderSettingsPayload => {
-    const parsedContext = parseInt(contextWindow, 10);
-    return {
-      providerType,
-      baseUrl: baseUrl.trim(),
-      model: model.trim(),
-      contextWindow: Number.isFinite(parsedContext) ? parsedContext : settings.contextWindow,
-    };
-  };
-
-  const handleSaveAgent = () => {
-    const maxSteps = parseInt(agentMaxSteps, 10);
-    const maxAutoContinues = parseInt(agentMaxAutoContinues, 10);
-    const researchSteps = parseInt(researchAgentMaxSteps, 10);
-    if (
-      !Number.isFinite(maxSteps) ||
-      !Number.isFinite(maxAutoContinues) ||
-      !Number.isFinite(researchSteps)
-    ) {
-      return;
-    }
-    onSaveAgentSettings({
-      subagentsEnabled,
-      maxSteps,
-      autoContinue: agentAutoContinue,
-      maxAutoContinues,
-      researchAgentMaxSteps: researchSteps,
-      showDiffPreview,
-    });
-    setAgentSaved(true);
-    setTimeout(() => setAgentSaved(false), 2000);
-  };
-
-  const handleSaveSafety = () => {
-    onSaveSafetySettings(deriveSafetySettings(approvalMode));
-    setSafetySaved(true);
-    setTimeout(() => setSafetySaved(false), 2000);
-  };
+  const currentProviderSettings = (): ProviderSettingsPayload => ({
+    providerType,
+    baseUrl: baseUrl.trim(),
+    model: model.trim(),
+    contextWindow,
+  });
 
   const isLocalProvider = providerType === 'openai-compatible';
+  const showSaveBar = activeTab !== 'workspace' && activeTab !== 'context';
 
   return (
-    <div className="settings-panel">
-      <h2 className="settings-title">Settings</h2>
-      <p className="settings-intro">
-        Configure where Thunder works, which model it calls, and what context it gathers.
-        Changes apply to the next message.
-      </p>
+    <div className="settings-shell">
+      <header className="settings-shell__header">
+        <div>
+          <h2 className="settings-shell__title">Settings</h2>
+          <p className="settings-shell__subtitle">
+            Configure Thunder for your workspace and model. Changes apply on save.
+          </p>
+        </div>
+      </header>
 
-      <WorkspaceSettingsSection
-        workspaceOpen={workspaceOpen}
-        workspacePath={workspacePath}
-        vscodeWorkspaceFolders={vscodeWorkspaceFolders}
-        workspaceOverride={workspaceOverride}
-        usingWorkspaceOverride={usingWorkspaceOverride}
-        indexDbPath={indexDbPath}
-        indexed={indexed}
-        indexingRunning={indexingRunning}
-        workspaceNotice={workspaceNotice}
-        onPickFolder={onPickWorkspaceFolder}
-        onSetOverride={onSetWorkspaceOverride}
-        onClearOverride={onClearWorkspaceOverride}
-        onIndex={onIndex}
-      />
-
-      <section className="settings-section">
-        <h3>Provider (LLM)</h3>
-        <SettingNote title="Why this matters">
-          Thunder sends your messages and tool results to this endpoint. Use <strong>Echo</strong> to test the UI
-          without a model. Use <strong>OpenAI-compatible</strong> for Ollama, LM Studio, or cloud APIs that speak
-          the OpenAI chat/completions format.
-        </SettingNote>
-
-        <label className="settings-field">
-          <span className="settings-label">Provider type</span>
-          <select
-            className="settings-input"
-            value={providerType}
-            onChange={(e) => setProviderType(e.target.value as 'echo' | 'openai-compatible')}
-          >
-            <option value="echo">Echo (test / no LLM)</option>
-            <option value="openai-compatible">OpenAI-compatible (Ollama, LM Studio, etc.)</option>
-          </select>
-        </label>
-
-        {isLocalProvider && (
-          <>
-            <label className="settings-field">
-              <span className="settings-label">Local API URL</span>
-              <input
-                type="url"
-                className="settings-input"
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="http://localhost:11434/v1"
-                aria-label="Local API URL"
-              />
-              <span className="settings-hint">Base URL for chat completions. Ollama: http://localhost:11434/v1</span>
-            </label>
-
-            <label className="settings-field">
-              <span className="settings-label">Model</span>
-              <input
-                type="text"
-                className="settings-input"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder="qwen3-coder:30b"
-                aria-label="Model name"
-              />
-              <span className="settings-hint">Must match a model pulled/loaded at your endpoint (e.g. ollama list).</span>
-            </label>
-
-            <label className="settings-field">
-              <span className="settings-label">Context window (tokens)</span>
-              <input
-                type="number"
-                className="settings-input"
-                value={contextWindow}
-                onChange={(e) => setContextWindow(e.target.value)}
-                min={1024}
-                max={1000000}
-                step={1024}
-                aria-label="Context window tokens"
-              />
-              <span className="settings-hint">
-                Used to budget how much codebase context fits in each request. Set to your model&apos;s real limit.
-              </span>
-            </label>
-
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={handleSaveProvider}
-              disabled={!baseUrl.trim() || !model.trim()}
-            >
-              {saved ? 'Saved!' : 'Save provider settings'}
-            </button>
-
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={() => onTestConnection(currentProviderSettings())}
-              style={{ marginTop: '8px' }}
-            >
-              Test connection
-            </button>
-
-            {settings.connectionStatus && (
-              <p
-                className={`settings-hint ${settings.connectionOk ? 'connection-ok' : 'connection-fail'}`}
-                role="status"
-              >
-                {settings.connectionStatus}
-              </p>
-            )}
-          </>
-        )}
-
-        {providerType === 'echo' && (
-          <>
-            <SettingNote>
-              Echo repeats your message — useful to verify workspace, indexing, and the chat UI without GPU/API setup.
-            </SettingNote>
-            <button type="button" className="btn btn--primary" onClick={handleSaveProvider}>
-              {saved ? 'Saved!' : 'Save provider settings'}
-            </button>
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={() => onTestConnection(currentProviderSettings())}
-              style={{ marginTop: '8px' }}
-            >
-              Test echo mode
-            </button>
-            {settings.connectionStatus && (
-              <p className="settings-hint connection-ok" role="status">
-                {settings.connectionStatus}
-              </p>
-            )}
-          </>
-        )}
-
-        <div className="settings-divider" />
-
-        <p className="settings-row">
-          API key: <strong>{settings.hasApiKey ? 'Saved' : 'Not set'}</strong>
-        </p>
-        <div className="api-key-row">
-          <input
-            type="password"
-            className="api-key-input"
-            placeholder="Enter API key (if required)…"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            aria-label="API key"
-          />
+      <nav className="settings-nav" aria-label="Settings sections">
+        {TABS.map((tab) => (
           <button
+            key={tab.id}
             type="button"
-            className="btn btn--primary btn--small"
-            onClick={handleSaveKey}
-            disabled={!apiKey.trim()}
+            className={`settings-nav__item ${activeTab === tab.id ? 'settings-nav__item--active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
           >
-            Save key
+            {tab.label}
           </button>
-        </div>
-        <span className="settings-hint">
-          Optional for local Ollama. Required for cloud APIs. Stored in VS Code SecretStorage, not plain settings.
-        </span>
-      </section>
+        ))}
+      </nav>
 
-      <section className="settings-section">
-        <h3>Agent behavior</h3>
-        <SettingNote title="What keeps a chat running">
-          Thunder runs tool calls in rounds. Auto-continue starts another round after the step limit, and subagents
-          can run read-only research in parallel. Lower these limits when you want the agent to stop sooner.
-        </SettingNote>
+      <div className="settings-shell__content">
+        {activeTab === 'workspace' && (
+          <WorkspaceSettingsSection
+            workspaceOpen={workspaceOpen}
+            workspacePath={workspacePath}
+            vscodeWorkspaceFolders={vscodeWorkspaceFolders}
+            workspaceOverride={workspaceOverride}
+            usingWorkspaceOverride={usingWorkspaceOverride}
+            indexDbPath={indexDbPath}
+            indexed={indexed}
+            indexingRunning={indexingRunning}
+            workspaceNotice={workspaceNotice}
+            onPickFolder={onPickWorkspaceFolder}
+            onSetOverride={onSetWorkspaceOverride}
+            onClearOverride={onClearWorkspaceOverride}
+            onIndex={onIndex}
+          />
+        )}
 
-        <div className="settings-toggles">
-          <label className="settings-toggle settings-toggle--rich">
-            <span className="settings-toggle-head">
-              <input
-                type="checkbox"
-                checked={subagentsEnabled}
-                onChange={(e) => setSubagentsEnabled(e.target.checked)}
-              />
-              <span>Research subagents</span>
-            </span>
-            <span className="settings-hint">
-              Allows <code>spawn_research_agent</code> for parallel, read-only investigation.
-            </span>
-          </label>
+        {activeTab === 'model' && (
+          <>
+            <SettingsCard
+              title="Provider"
+              description="Endpoint Thunder calls for chat completions and tool loops."
+            >
+              <label className="settings-field">
+                <span className="settings-label">Provider type</span>
+                <select
+                  className="settings-input settings-select"
+                  value={providerType}
+                  onChange={(e) => {
+                    setProviderType(e.target.value as 'echo' | 'openai-compatible');
+                    markDirty();
+                  }}
+                >
+                  <option value="echo">Echo (test / no LLM)</option>
+                  <option value="openai-compatible">OpenAI-compatible (Ollama, LM Studio, cloud)</option>
+                </select>
+              </label>
 
-          <label className="settings-toggle settings-toggle--rich">
-            <span className="settings-toggle-head">
-              <input
-                type="checkbox"
-                checked={agentAutoContinue}
-                onChange={(e) => setAgentAutoContinue(e.target.checked)}
-              />
-              <span>Auto-continue rounds</span>
-            </span>
-            <span className="settings-hint">
-              Lets the agent keep working after it spends the main step budget.
-            </span>
-          </label>
+              {isLocalProvider && (
+                <>
+                  <label className="settings-field">
+                    <span className="settings-label">API base URL</span>
+                    <input
+                      type="url"
+                      className="settings-input"
+                      value={baseUrl}
+                      onChange={(e) => {
+                        setBaseUrl(e.target.value);
+                        markDirty();
+                      }}
+                      placeholder="http://localhost:11434/v1"
+                    />
+                  </label>
 
-          <label className="settings-toggle settings-toggle--rich">
-            <span className="settings-toggle-head">
-              <input
-                type="checkbox"
-                checked={showDiffPreview}
-                onChange={(e) => setShowDiffPreview(e.target.checked)}
-              />
-              <span>Open diff previews</span>
-            </span>
-            <span className="settings-hint">
-              Opens VS Code diff tabs before file edits. Leave off to keep the editor focused.
-            </span>
-          </label>
-        </div>
+                  <label className="settings-field">
+                    <span className="settings-label">Model</span>
+                    <input
+                      type="text"
+                      className="settings-input"
+                      value={model}
+                      onChange={(e) => {
+                        setModel(e.target.value);
+                        markDirty();
+                      }}
+                      placeholder="qwen3-coder:30b"
+                    />
+                  </label>
 
-        <div className="settings-field-grid">
-          <label className="settings-field">
-            <span className="settings-label">Main agent max steps</span>
-            <input
-              type="number"
-              className="settings-input"
+                  <SettingStepper
+                    label="Context window"
+                    description="Token budget for codebase context per request."
+                    value={contextWindow}
+                    min={1024}
+                    max={128000}
+                    step={1024}
+                    onChange={(v) => {
+                      setContextWindow(v);
+                      markDirty();
+                    }}
+                  />
+                </>
+              )}
+
+              {providerType === 'echo' && (
+                <p className="settings-inline-note">
+                  Echo mode repeats your message — useful to verify workspace, indexing, and UI without a model.
+                </p>
+              )}
+
+              <div className="settings-inline-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => onTestConnection(currentProviderSettings())}
+                >
+                  Test connection
+                </button>
+                {settings.connectionStatus && (
+                  <span
+                    className={`settings-status-pill ${settings.connectionOk ? 'settings-status-pill--ok' : 'settings-status-pill--err'}`}
+                    role="status"
+                  >
+                    {settings.connectionStatus}
+                  </span>
+                )}
+              </div>
+            </SettingsCard>
+
+            <SettingsCard title="API key" description="Optional for local Ollama. Stored in VS Code SecretStorage.">
+              <div className="settings-key-row">
+                <input
+                  type="password"
+                  className="settings-input"
+                  placeholder={settings.hasApiKey ? 'Key saved — enter to replace' : 'Enter API key…'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </div>
+              <p className="settings-inline-note">
+                Status: <strong>{settings.hasApiKey ? 'Saved' : 'Not set'}</strong>
+              </p>
+            </SettingsCard>
+          </>
+        )}
+
+        {activeTab === 'agent' && (
+          <SettingsCard
+            title="Agent behavior"
+            description="Control tool rounds, subagents, and editor integration."
+          >
+            <SettingSwitch
+              label="Research subagents"
+              description="Parallel read-only investigation via spawn_research_agent."
+              checked={subagentsEnabled}
+              onChange={(v) => {
+                setSubagentsEnabled(v);
+                markDirty();
+              }}
+            />
+            <SettingSwitch
+              label="Auto-continue rounds"
+              description="Keep working after the main step budget is spent."
+              checked={agentAutoContinue}
+              onChange={(v) => {
+                setAgentAutoContinue(v);
+                markDirty();
+              }}
+            />
+            <SettingSwitch
+              label="Diff previews"
+              description="Open VS Code diff tabs before file edits."
+              checked={showDiffPreview}
+              onChange={(v) => {
+                setShowDiffPreview(v);
+                markDirty();
+              }}
+            />
+
+            <div className="settings-divider" />
+
+            <SettingStepper
+              label="Main agent max steps"
+              value={agentMaxSteps}
               min={1}
               max={100}
-              value={agentMaxSteps}
-              onChange={(e) => setAgentMaxSteps(e.target.value)}
+              onChange={(v) => {
+                setAgentMaxSteps(v);
+                markDirty();
+              }}
             />
-          </label>
-
-          <label className="settings-field">
-            <span className="settings-label">Max auto-continues</span>
-            <input
-              type="number"
-              className="settings-input"
+            <SettingStepper
+              label="Max auto-continues"
+              value={agentMaxAutoContinues}
               min={0}
               max={10}
-              value={agentMaxAutoContinues}
-              onChange={(e) => setAgentMaxAutoContinues(e.target.value)}
               disabled={!agentAutoContinue}
+              onChange={(v) => {
+                setAgentMaxAutoContinues(v);
+                markDirty();
+              }}
             />
-          </label>
-        </div>
+            <SettingStepper
+              label="Research subagent max steps"
+              value={researchAgentMaxSteps}
+              min={1}
+              max={50}
+              disabled={!subagentsEnabled}
+              onChange={(v) => {
+                setResearchAgentMaxSteps(v);
+                markDirty();
+              }}
+            />
+          </SettingsCard>
+        )}
 
-        <label className="settings-field">
-          <span className="settings-label">Research subagent max steps</span>
-          <input
-            type="number"
-            className="settings-input"
-            min={1}
-            max={50}
-            value={researchAgentMaxSteps}
-            onChange={(e) => setResearchAgentMaxSteps(e.target.value)}
-            disabled={!subagentsEnabled}
-          />
-          <span className="settings-hint">
-            Applies to each spawned subagent. Current effective maximum work is roughly main steps plus continuation rounds.
-          </span>
-        </label>
-
-        <button type="button" className="btn btn--primary" onClick={handleSaveAgent}>
-          {agentSaved ? 'Saved!' : 'Save agent settings'}
-        </button>
-      </section>
-
-      <section className="settings-section">
-        <h3>Context sources</h3>
-        <SettingNote title="Why this matters">
-          These are mixed into the prompt <em>before</em> the model runs. The agent can still use tools to read more.
-          Disable sources you do not need to save tokens and reduce distraction (e.g. diagnostics during audits).
-        </SettingNote>
-        <div className="settings-toggles">
-          {CONTEXT_TOGGLES.map(({ key, label, why }) => (
-            <label key={key} className="settings-toggle settings-toggle--rich">
-              <span className="settings-toggle-head">
-                <input
-                  type="checkbox"
-                  checked={contextToggles[key]}
-                  onChange={(e) => onToggleContext(key, e.target.checked)}
-                />
-                <span>{label}</span>
-              </span>
-              <span className="settings-hint">{why}</span>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <h3>MCP and project rules</h3>
-        <SettingNote>
-          Thunder loads MCP servers from VS Code settings, <code>.thunder/mcp.json</code>, and <code>.mcp.json</code>.
-          Project rules are read from <code>.thunder/rules</code>, <code>AGENTS.md</code>, <code>CLAUDE.md</code>,
-          <code>.clinerules</code>, and Continue/Cursor rule folders.
-        </SettingNote>
-        <p className="settings-row">MCP enabled: <strong>{settings.mcpEnabled ? 'Yes' : 'No'}</strong></p>
-        <p className="settings-row">MCP servers: <strong>{settings.mcpServers}</strong></p>
-        <p className="settings-row">MCP tools: <strong>{settings.mcpTools}</strong></p>
-        <p className="settings-row">Project rule files: <strong>{settings.projectRules}</strong></p>
-      </section>
-
-      <section className="settings-section">
-        <h3>Indexing</h3>
-        <SettingNote>
-          When enabled, Thunder respects .gitignore and skips huge files. Indexing is required for full-text search
-          and accurate repo map. Controlled in VS Code settings: <code>thunder.indexing.enabled</code>.
-        </SettingNote>
-        <p className="settings-row">Enabled: <strong>{settings.indexingEnabled ? 'Yes' : 'No'}</strong></p>
-      </section>
-
-      <section className="settings-section">
-        <h3>Safety</h3>
-        <SettingNote>
-          Approval mode decides when Thunder pauses for review. Dangerous commands stay blocked even when auto-approve
-          is selected.
-        </SettingNote>
-        <label className="settings-field">
-          <span className="settings-label">Approval mode</span>
-          <select
-            className="settings-input"
-            value={approvalMode}
-            onChange={(e) => setApprovalMode(e.target.value as ApprovalMode)}
+        {activeTab === 'context' && (
+          <SettingsCard
+            title="Context sources"
+            description="Mixed into the prompt before the model runs. Toggles apply immediately."
           >
-            <option value="review_all">Ask before edits and commands</option>
-            <option value="ask_edits">Ask before edits</option>
-            <option value="ask_deletes">Ask before deletes</option>
-            <option value="ask_commands">Ask before commands</option>
-            <option value="auto">Auto approve allowed operations</option>
-          </select>
-          <span className="settings-hint">{approvalModeDescription(approvalMode)}</span>
-        </label>
-        <button type="button" className="btn btn--primary" onClick={handleSaveSafety}>
-          {safetySaved ? 'Saved!' : 'Save approval mode'}
-        </button>
-        <p className="settings-row">
-          Current policy: <strong>{settings.requireApprovalWrites ? 'edits ask' : 'edits auto'}</strong>
-          {' · '}
-          <strong>{settings.requireApprovalShell ? 'commands ask' : 'commands auto'}</strong>
-        </p>
-      </section>
+            {CONTEXT_TOGGLES.map(({ key, label, description }) => (
+              <SettingSwitch
+                key={key}
+                label={label}
+                description={description}
+                checked={contextToggles[key]}
+                onChange={(enabled) => onToggleContext(key, enabled)}
+              />
+            ))}
+          </SettingsCard>
+        )}
 
-      <section className="settings-section">
-        <h3>Memory</h3>
-        <SettingNote>
-          After tasks, Thunder can save short observations (decisions, conventions) for future chats in this workspace.
-        </SettingNote>
-        <p className="settings-row">Enabled: <strong>{settings.memoryEnabled ? 'Yes' : 'No'}</strong></p>
-      </section>
+        {activeTab === 'integrations' && (
+          <>
+            <SettingsCard
+              title="Model Context Protocol (MCP)"
+              description="Connect external tools from MCP servers configured in VS Code settings or workspace mcp.json files."
+            >
+              <SettingSwitch
+                label="Enable MCP"
+                description="Load tools from thunder.mcp.servers, .thunder/mcp.json, and .mcp.json."
+                checked={mcpEnabled}
+                onChange={(v) => {
+                  setMcpEnabled(v);
+                  markDirty();
+                }}
+              />
+
+              <div className="settings-stats-row">
+                <div className="settings-stat">
+                  <span className="settings-stat__value">{settings.mcpServers}</span>
+                  <span className="settings-stat__label">Servers</span>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat__value">{settings.mcpTools}</span>
+                  <span className="settings-stat__label">Tools</span>
+                </div>
+                <div className="settings-stat">
+                  <span className="settings-stat__value">{settings.projectRules}</span>
+                  <span className="settings-stat__label">Rules</span>
+                </div>
+              </div>
+
+              {settings.mcpServerStatuses.length > 0 ? (
+                <ul className="settings-mcp-list">
+                  {settings.mcpServerStatuses.map((server) => (
+                    <li key={server.name} className="settings-mcp-item">
+                      <span className={`settings-mcp-dot ${server.connected ? 'settings-mcp-dot--ok' : 'settings-mcp-dot--err'}`} />
+                      <span className="settings-mcp-name">{server.name}</span>
+                      <span className="settings-mcp-meta">
+                        {server.connected
+                          ? `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}`
+                          : server.error ?? 'Disconnected'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="settings-inline-note">
+                  No MCP servers configured. Add servers in VS Code settings under{' '}
+                  <code>thunder.mcp.servers</code> or commit <code>.thunder/mcp.json</code>.
+                </p>
+              )}
+            </SettingsCard>
+
+            <SettingsCard title="Project rules" description="Automatically loaded from your workspace.">
+              <p className="settings-inline-note">
+                Thunder reads <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.thunder/rules</code>,{' '}
+                <code>.clinerules</code>, and Continue/Cursor rule folders into context.
+              </p>
+              <p className="settings-inline-note">
+                Active rule files: <strong>{settings.projectRules}</strong>
+              </p>
+            </SettingsCard>
+          </>
+        )}
+
+        {activeTab === 'safety' && (
+          <SettingsCard
+            title="Approval policy"
+            description="When Thunder pauses for review before edits or shell commands."
+          >
+            <label className="settings-field">
+              <span className="settings-label">Approval mode</span>
+              <select
+                className="settings-input settings-select"
+                value={approvalMode}
+                onChange={(e) => {
+                  setApprovalMode(e.target.value as ApprovalMode);
+                  markDirty();
+                }}
+              >
+                <option value="review_all">Ask before edits and commands</option>
+                <option value="ask_edits">Ask before edits</option>
+                <option value="ask_deletes">Ask before deletes</option>
+                <option value="ask_commands">Ask before commands</option>
+                <option value="auto">Auto approve allowed operations</option>
+              </select>
+              <span className="settings-hint">{approvalModeDescription(approvalMode)}</span>
+            </label>
+
+            <div className="settings-policy-summary">
+              <span>{settings.requireApprovalWrites ? 'Edits: ask' : 'Edits: auto'}</span>
+              <span>{settings.requireApprovalShell ? 'Commands: ask' : 'Commands: auto'}</span>
+            </div>
+          </SettingsCard>
+        )}
+      </div>
+
+      {showSaveBar && (
+        <footer className="settings-save-bar">
+          <span className="settings-save-bar__hint">
+            {dirty ? 'Unsaved changes' : saved ? 'All changes saved' : 'No pending changes'}
+          </span>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={handleSaveAll}
+            disabled={!dirty && !apiKey.trim()}
+          >
+            {saved ? 'Saved' : 'Save changes'}
+          </button>
+        </footer>
+      )}
     </div>
   );
 }
@@ -563,10 +562,10 @@ function approvalModeDescription(mode: ApprovalMode): string {
     case 'ask_edits':
       return 'Pause before write_file, apply_patch, and delete-like shell commands.';
     case 'ask_deletes':
-      return 'Pause only for delete-like shell commands such as rm, git rm, or npm uninstall.';
+      return 'Pause only for delete-like shell commands such as rm or npm uninstall.';
     case 'ask_commands':
       return 'Pause before mutating shell commands, but allow file edits.';
     case 'auto':
-      return 'Do not pause for allowed operations. Dangerous commands are still blocked.';
+      return 'Do not pause for allowed operations. Dangerous commands remain blocked.';
   }
 }

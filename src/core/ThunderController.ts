@@ -687,6 +687,12 @@ export class ThunderController {
         mcpEnabled: config.mcp.enabled,
         mcpServers: this.mcpManager.getStatuses().length,
         mcpTools: this.mcpManager.getConnectedToolCount(),
+        mcpServerStatuses: this.mcpManager.getStatuses().map((s) => ({
+          name: s.name,
+          connected: s.connected,
+          toolCount: s.toolCount,
+          error: s.error,
+        })),
         projectRules: this.projectRulesService?.count() ?? 0,
       },
       contextToggles: this.contextToggles,
@@ -1385,6 +1391,65 @@ export class ThunderController {
     this.policyEngine?.updateSafetyConfig(effectiveSafety);
     this.notifyUi({ settings: (await this.buildUiState()).settings });
     void vscode.window.showInformationMessage('Thunder: Approval mode saved.');
+  }
+
+  async saveMcpSettings(settings: import('../vscode/webview/messages').McpSettingsPayload): Promise<void> {
+    await this.configService.updateMcpSettings(settings);
+    await this.reloadMcpServers();
+    this.notifyUi({ settings: (await this.buildUiState()).settings });
+    void vscode.window.showInformationMessage(
+      settings.enabled ? 'Thunder: MCP enabled.' : 'Thunder: MCP disabled.'
+    );
+  }
+
+  async saveAllSettings(settings: import('../vscode/webview/messages').ThunderSettingsPayload): Promise<void> {
+    const clamp = (value: number, min: number, max: number) =>
+      Math.max(min, Math.min(Number.isFinite(value) ? Math.floor(value) : min, max));
+
+    const contextWindow = Math.max(1024, Math.min(settings.provider.contextWindow, 1_000_000));
+    const normalized: import('../vscode/webview/messages').ThunderSettingsPayload = {
+      provider: {
+        ...settings.provider,
+        baseUrl: settings.provider.baseUrl.trim(),
+        model: settings.provider.model.trim(),
+        contextWindow,
+      },
+      agent: {
+        ...settings.agent,
+        maxSteps: clamp(settings.agent.maxSteps, 1, 100),
+        maxAutoContinues: clamp(settings.agent.maxAutoContinues, 0, 10),
+        researchAgentMaxSteps: clamp(settings.agent.researchAgentMaxSteps, 1, 50),
+      },
+      safety: settings.safety,
+      mcp: settings.mcp,
+    };
+
+    await this.configService.updateAllSettings(normalized);
+
+    const config = this.configService.getConfig();
+    const apiKey = await this.configService.getApiKey();
+    await this.providerRegistry.resolveFromConfig(config.provider, apiKey);
+    await this.refreshResearchAgentProvider();
+    this.chatOrchestrator?.configure({
+      agentConfig: config.agent,
+      researchAgentProvider: this.researchAgentProvider,
+    });
+
+    const effectiveSafety = applyAutonomyPreset(config.safety, config.safety.autonomyPreset);
+    this.policyEngine?.updateSafetyConfig(effectiveSafety);
+
+    await this.reloadMcpServers();
+    this.rebuildRetriever();
+
+    this.notifyUi({ settings: (await this.buildUiState()).settings });
+    void vscode.window.showInformationMessage('Thunder: Settings saved.');
+  }
+
+  private async reloadMcpServers(): Promise<void> {
+    if (!this.toolRuntime) return;
+    const config = this.configService.getConfig();
+    const workspace = this.resolveWorkspacePath() ?? '';
+    await this.mcpManager.reload(config.mcp, workspace, this.toolRuntime);
   }
 
   setContextToggle(source: keyof ContextToggles, enabled: boolean): void {

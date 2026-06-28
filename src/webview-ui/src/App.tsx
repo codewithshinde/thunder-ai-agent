@@ -120,6 +120,8 @@ export function App() {
               onModeChange={(mode) => postMessage({ type: 'setMode', payload: mode })}
               onRetry={() => postMessage({ type: 'retryLastMessage' })}
               onCopyResponse={() => postMessage({ type: 'copyLastResponse' })}
+              onCopyChatHistory={() => postMessage({ type: 'copyChatHistoryMarkdown' })}
+              canCopyChatHistory={state.messages.some((m) => m.content.trim())}
               onAddPinned={(path, kind) =>
                 postMessage({ type: 'addPinnedContext', payload: { path, kind } })
               }
@@ -151,15 +153,7 @@ export function App() {
             workspaceNotice={state.workspaceNotice}
             contextToggles={state.contextToggles}
             onSaveApiKey={(key) => postMessage({ type: 'saveApiKey', payload: { key } })}
-            onSaveProviderSettings={(payload) =>
-              postMessage({ type: 'saveProviderSettings', payload })
-            }
-            onSaveAgentSettings={(payload) =>
-              postMessage({ type: 'saveAgentSettings', payload })
-            }
-            onSaveSafetySettings={(payload) =>
-              postMessage({ type: 'saveSafetySettings', payload })
-            }
+            onSaveAllSettings={(payload) => postMessage({ type: 'saveAllSettings', payload })}
             onTestConnection={(payload) => postMessage({ type: 'testProviderConnection', payload })}
             onPickWorkspaceFolder={() => postMessage({ type: 'pickWorkspaceFolder' })}
             onSetWorkspaceOverride={(path) =>

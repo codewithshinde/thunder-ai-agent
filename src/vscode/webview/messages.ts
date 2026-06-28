@@ -177,6 +177,7 @@ export interface SettingsView {
   mcpEnabled: boolean;
   mcpServers: number;
   mcpTools: number;
+  mcpServerStatuses: McpServerStatusView[];
   projectRules: number;
 }
 
@@ -202,6 +203,24 @@ export interface SafetySettingsPayload {
   approvalMode: ApprovalMode;
   requireApprovalForWrites: boolean;
   requireApprovalForShell: boolean;
+}
+
+export interface McpSettingsPayload {
+  enabled: boolean;
+}
+
+export interface McpServerStatusView {
+  name: string;
+  connected: boolean;
+  toolCount: number;
+  error?: string;
+}
+
+export interface ThunderSettingsPayload {
+  provider: ProviderSettingsPayload;
+  agent: AgentSettingsPayload;
+  safety: SafetySettingsPayload;
+  mcp: McpSettingsPayload;
 }
 
 export interface ContextToggles {
@@ -289,6 +308,8 @@ export type WebviewToExtensionMessage =
   | { type: 'saveProviderSettings'; payload: ProviderSettingsPayload }
   | { type: 'saveAgentSettings'; payload: AgentSettingsPayload }
   | { type: 'saveSafetySettings'; payload: SafetySettingsPayload }
+  | { type: 'saveMcpSettings'; payload: McpSettingsPayload }
+  | { type: 'saveAllSettings'; payload: ThunderSettingsPayload }
   | { type: 'testProviderConnection'; payload?: ProviderSettingsPayload }
   | { type: 'pickWorkspaceFolder' }
   | { type: 'setWorkspaceOverride'; payload: { path: string } }
@@ -300,6 +321,7 @@ export type WebviewToExtensionMessage =
   | { type: 'toggleContextSource'; payload: { source: keyof ContextToggles; enabled: boolean } }
   | { type: 'toggleContextPreview' }
   | { type: 'copyLastResponse' }
+  | { type: 'copyChatHistoryMarkdown' }
   | { type: 'addPinnedContext'; payload: { path: string; kind: 'file' | 'folder' } }
   | { type: 'removePinnedContext'; payload: { path: string } }
   | { type: 'clearPinnedContext' }
@@ -336,6 +358,7 @@ export const defaultSettingsView = (): SettingsView => ({
   mcpEnabled: true,
   mcpServers: 0,
   mcpTools: 0,
+  mcpServerStatuses: [],
   projectRules: 0,
 });
 

@@ -74,6 +74,15 @@ export function IconCopy(props: IconProps) {
   );
 }
 
+export function IconMarkdown(props: IconProps) {
+  return (
+    <svg {...defaults} {...props}>
+      <rect x="2" y="3.5" width="12" height="9" rx="1" />
+      <path d="M4.25 9.75V6.5l1.5 2 1.5-2v3.25M9.5 6.5v3.25M8.5 8.75l1 1 1-1" />
+    </svg>
+  );
+}
+
 export function IconContext(props: IconProps) {
   return (
     <svg {...defaults} {...props}>

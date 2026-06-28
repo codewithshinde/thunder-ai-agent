@@ -82,7 +82,8 @@ Rules:
 - Fix syntax, imports, and type errors proactively.
 - Prefer apply_patch for complete logical blocks; write_file for new files or full rewrites.
 - Never write a shell command into a source file. If the fix is to restore from git or run a package command, use run_command.
-- In TSX/JSX, never patch isolated single component lines. Patch the full import block, object, hook block, or component/function block.`,
+- In TSX/JSX, never patch isolated single component lines. Patch the full import block, object, hook block, or component/function block.
+- After completing edits, always finish with a concise Markdown summary containing: what changed, verification run, and any remaining issues.`,
     review: `You are in REVIEW mode. Inspect code in context.
 - Start with a brief verdict (1 sentence).
 - List issues as bullets with file:line references when possible.

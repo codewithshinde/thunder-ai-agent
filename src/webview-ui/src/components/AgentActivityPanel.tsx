@@ -19,7 +19,7 @@ const KIND_LABEL: Record<AgentActivityEntry['kind'], string> = {
 };
 
 export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApproval = false }: AgentActivityPanelProps) {
-  const visible = entries.slice(-8);
+  const visible = entries.slice(-12);
   const latest = entries[entries.length - 1];
   const statusLabel = loading
     ? liveStatus?.label ?? 'Working through steps'
@@ -33,20 +33,26 @@ export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApp
   if (entries.length === 0 && !loading && !waitingForApproval) return null;
 
   return (
-    <section className="assistant-thinking" aria-label="Agent activity">
-      <p className="message-working assistant-thinking__status">
+    <details className="assistant-thinking" aria-label="Agent activity">
+      <summary className="assistant-thinking__summary">
         <span
           className={`message-working__pulse ${
             waitingForApproval && !loading ? 'message-working__pulse--waiting' : ''
           }`}
           aria-hidden="true"
         />
-        <span>
-          {statusLabel}
-          {progressLabel ? ` · ${progressLabel}` : ''}
-          {liveStatus?.detail ? ` · ${liveStatus.detail}` : ''}
+        <span className="assistant-thinking__summary-main">
+          <span className="assistant-thinking__status-line">
+            {statusLabel}
+            {progressLabel ? ` · ${progressLabel}` : ''}
+          </span>
+          <span className="assistant-thinking__latest">
+            {latest ? latest.message : liveStatus?.detail ?? 'Preparing activity'}
+            {latest?.detail ? ` · ${summarizeDetail(latest.detail)}` : liveStatus?.detail ? ` · ${liveStatus.detail}` : ''}
+          </span>
         </span>
-      </p>
+        {entries.length > 1 && <span className="assistant-thinking__count">{entries.length}</span>}
+      </summary>
       <ol className="assistant-thinking__list">
         {visible.map((entry, index) => {
           const isLatest = index === visible.length - 1;
@@ -66,7 +72,7 @@ export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApp
           );
         })}
       </ol>
-    </section>
+    </details>
   );
 }
 

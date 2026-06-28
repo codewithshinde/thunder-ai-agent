@@ -7,6 +7,8 @@ type Segment =
   | { type: 'text'; value: string }
   | { type: 'code'; value: string; language: string; path?: string; streaming?: boolean };
 
+type ListKind = 'ul' | 'ol';
+
 function parseFenceHeader(headerLine: string): { language: string; path?: string } {
   const trimmed = headerLine.trim();
   const codeEdit = /^([\w+-]*)\|CODE_EDIT_BLOCK\|(.+)$/.exec(trimmed);
@@ -69,16 +71,45 @@ function splitSegments(content: string, streaming = false): Segment[] {
 }
 
 function renderInline(text: string): Array<string | JSX.Element> {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
-  return parts.map((part, index) => {
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={index}>{part.slice(1, -1)}</code>;
+  const nodes: Array<string | JSX.Element> = [];
+  const pattern = /(`[^`]+`|\[([^\]]+)\]\(([^)]+)\)|(\*\*|__)(.+?)\4|(\*|_)([^*_]+?)\6)/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > cursor) {
+      nodes.push(text.slice(cursor, match.index));
     }
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={index}>{part.slice(2, -2)}</strong>;
+
+    const token = match[0];
+    const key = `inline-${match.index}-${nodes.length}`;
+    if (token.startsWith('`') && token.endsWith('`')) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (match[2] && match[3]) {
+      const href = safeHref(match[3]);
+      nodes.push(
+        href ? (
+          <a key={key} href={href} title={href}>
+            {match[2]}
+          </a>
+        ) : (
+          <span key={key}>{match[2]}</span>
+        )
+      );
+    } else if (match[5]) {
+      nodes.push(<strong key={key}>{renderInline(match[5])}</strong>);
+    } else if (match[7]) {
+      nodes.push(<em key={key}>{match[7]}</em>);
     }
-    return part;
-  });
+
+    cursor = match.index + token.length;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+
+  return nodes.length > 0 ? nodes : [text];
 }
 
 function renderTextBlock(text: string, baseKey: string): JSX.Element[] {
@@ -86,6 +117,8 @@ function renderTextBlock(text: string, baseKey: string): JSX.Element[] {
   const nodes: JSX.Element[] = [];
   let paragraph: string[] = [];
   let list: string[] = [];
+  let listKind: ListKind = 'ul';
+  let quote: string[] = [];
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
@@ -96,51 +129,159 @@ function renderTextBlock(text: string, baseKey: string): JSX.Element[] {
 
   const flushList = () => {
     if (list.length === 0) return;
+    const ListTag = listKind;
     nodes.push(
-      <ul key={`${baseKey}-ul-${nodes.length}`}>
+      <ListTag key={`${baseKey}-${listKind}-${nodes.length}`}>
         {list.map((item, index) => <li key={index}>{renderInline(item)}</li>)}
-      </ul>
+      </ListTag>
     );
     list = [];
   };
 
-  lines.forEach((line) => {
+  const flushQuote = () => {
+    if (quote.length === 0) return;
+    nodes.push(
+      <blockquote key={`${baseKey}-quote-${nodes.length}`}>
+        {renderTextBlock(quote.join('\n'), `${baseKey}-quote-${nodes.length}`)}
+      </blockquote>
+    );
+    quote = [];
+  };
+
+  const flushAll = () => {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  };
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     const trimmed = line.trim();
     if (!trimmed) {
-      flushParagraph();
-      flushList();
-      return;
+      flushAll();
+      continue;
     }
 
-    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    const table = readTable(lines, lineIndex);
+    if (table) {
+      flushAll();
+      nodes.push(renderTable(table.rows, `${baseKey}-table-${nodes.length}`));
+      lineIndex = table.endIndex;
+      continue;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
     if (heading) {
-      flushParagraph();
-      flushList();
-      nodes.push(<h3 key={`${baseKey}-h-${nodes.length}`}>{renderInline(heading[2])}</h3>);
-      return;
+      flushAll();
+      const level = heading[1].length;
+      const Tag = level <= 2 ? 'h2' : level === 3 ? 'h3' : 'h4';
+      nodes.push(<Tag key={`${baseKey}-h-${nodes.length}`}>{renderInline(heading[2])}</Tag>);
+      continue;
     }
 
-    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      flushAll();
+      nodes.push(<hr key={`${baseKey}-hr-${nodes.length}`} />);
+      continue;
+    }
+
+    const quoteMatch = /^>\s?(.*)$/.exec(trimmed);
+    if (quoteMatch) {
+      flushParagraph();
+      flushList();
+      quote.push(quoteMatch[1]);
+      continue;
+    }
+
+    const bullet = /^[-*+]\s+(.+)$/.exec(trimmed);
     if (bullet) {
       flushParagraph();
-      list.push(bullet[1]);
-      return;
+      flushQuote();
+      if (list.length > 0 && listKind !== 'ul') flushList();
+      listKind = 'ul';
+      list.push(normalizeListItem(bullet[1]));
+      continue;
     }
 
     const numbered = /^\d+\.\s+(.+)$/.exec(trimmed);
     if (numbered) {
       flushParagraph();
+      flushQuote();
+      if (list.length > 0 && listKind !== 'ol') flushList();
+      listKind = 'ol';
       list.push(numbered[1]);
-      return;
+      continue;
     }
 
     flushList();
+    flushQuote();
     paragraph.push(trimmed);
-  });
+  }
 
-  flushParagraph();
-  flushList();
+  flushAll();
   return nodes;
+}
+
+function normalizeListItem(item: string): string {
+  return item.replace(/^\[( |x|X)\]\s+/, (match) => `${match.toLowerCase().includes('x') ? 'Done: ' : 'Todo: '}`);
+}
+
+function readTable(lines: string[], startIndex: number): { rows: string[][]; endIndex: number } | null {
+  const header = parseTableRow(lines[startIndex]);
+  const separator = parseTableRow(lines[startIndex + 1] ?? '');
+  if (!header || !separator || !separator.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))) {
+    return null;
+  }
+
+  const rows = [header];
+  let endIndex = startIndex + 1;
+  for (let i = startIndex + 2; i < lines.length; i += 1) {
+    const row = parseTableRow(lines[i]);
+    if (!row) break;
+    rows.push(row);
+    endIndex = i;
+  }
+
+  return { rows, endIndex };
+}
+
+function parseTableRow(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (!trimmed.includes('|')) return null;
+  const withoutOuter = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+  const cells = withoutOuter.split('|').map((cell) => cell.trim());
+  return cells.length >= 2 ? cells : null;
+}
+
+function renderTable(rows: string[][], key: string): JSX.Element {
+  const [head, ...body] = rows;
+  return (
+    <div className="markdown-table-wrap" key={key}>
+      <table>
+        <thead>
+          <tr>
+            {head.map((cell, index) => <th key={index}>{renderInline(cell)}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              {head.map((_, cellIndex) => (
+                <td key={cellIndex}>{renderInline(row[cellIndex] ?? '')}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function safeHref(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^(https?:|mailto:)/i.test(trimmed)) return trimmed;
+  if (/^#[\w-]+$/.test(trimmed)) return trimmed;
+  return null;
 }
 
 function extractThinking(content: string): { thinking: string | null; visible: string } {

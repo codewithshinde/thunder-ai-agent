@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import type { AgentSettingsPayload, ProviderSettingsPayload, SafetySettingsPayload } from '../../vscode/webview/messages';
+import type {
+  AgentSettingsPayload,
+  McpSettingsPayload,
+  ProviderSettingsPayload,
+  SafetySettingsPayload,
+  ThunderSettingsPayload,
+} from '../../vscode/webview/messages';
 
 const CONFIG_SECTION = 'thunder';
 
@@ -42,4 +48,17 @@ export async function updateWorkspaceOverride(path: string): Promise<void> {
 export async function clearWorkspaceOverride(): Promise<void> {
   const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
   await config.update('workspace.rootPathOverride', '', vscode.ConfigurationTarget.Global);
+}
+
+export async function updateMcpSettings(settings: McpSettingsPayload): Promise<void> {
+  const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+  const target = vscode.ConfigurationTarget.Global;
+  await config.update('mcp.enabled', settings.enabled, target);
+}
+
+export async function updateAllSettings(settings: ThunderSettingsPayload): Promise<void> {
+  await updateProviderSettings(settings.provider);
+  await updateAgentSettings(settings.agent);
+  await updateSafetySettings(settings.safety);
+  await updateMcpSettings(settings.mcp);
 }
