@@ -157,6 +157,15 @@ export class ThunderController {
   }
 
   private notifyUi(partial: Partial<WebviewState>): void {
+    if (this.sessionLog.isEnabled() && this.configService.getConfig().telemetry.debugMetrics) {
+      this.sessionLog.appendUiTrace('UI partial update', {
+        keys: Object.keys(partial),
+        loading: partial.loading,
+        activityCount: partial.agentActivity?.length,
+        planSteps: partial.plan?.steps.length,
+        indexingRunning: partial.indexing?.running,
+      });
+    }
     this.uiUpdate?.(partial);
   }
 
@@ -197,10 +206,17 @@ export class ThunderController {
     await this.configService.initialize();
 
     const workspace = this.resolveWorkspacePath();
+    const vscodeFolder = this.getPrimaryVscodeFolder();
+    const source: 'vscode' | 'override' | 'none' = vscodeFolder
+      ? 'vscode'
+      : this.configService.getWorkspaceOverride()
+        ? 'override'
+        : 'none';
     this.session = new ThunderSession(workspace);
     if (workspace) {
       this.configureSessionLogging(this.session, workspace);
     }
+    this.logWorkspaceResolution(workspace, source);
 
     if (workspace) {
       try {
@@ -231,6 +247,40 @@ export class ThunderController {
     this.context.subscriptions.push(this.configDisposable);
 
     log.info('ThunderController initialized', { workspace });
+    if (workspace) {
+      void this.maybeAutoIndex();
+    }
+  }
+
+  private getPrimaryVscodeFolder(): string {
+    return normalizeWorkspaceRoot(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '') ?? '';
+  }
+
+  private logWorkspaceResolution(workspace: string, source: 'vscode' | 'override' | 'none'): void {
+    log.info('Workspace resolved', {
+      workspace,
+      source,
+      vscodeFolders: this.getVscodeWorkspaceFolders(),
+      override: this.configService.getWorkspaceOverride() || undefined,
+    });
+    this.sessionLog.append('workspace_resolved', `Workspace: ${workspace || '(none)'}`, {
+      workspace,
+      source,
+      vscodeFolders: this.getVscodeWorkspaceFolders(),
+      override: this.configService.getWorkspaceOverride() || undefined,
+    });
+  }
+
+  private async maybeAutoIndex(): Promise<void> {
+    const config = this.configService.getConfig();
+    if (!config.indexing.enabled || !config.indexing.autoIndexOnOpen) return;
+    try {
+      await this.indexWorkspace();
+    } catch (error) {
+      log.warn('Auto-index on open failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private initMinimalChat(workspace: string): void {
@@ -742,7 +792,7 @@ export class ThunderController {
       workspacePath,
       vscodeWorkspaceFolders: vscodeFolders,
       workspaceOverride: override,
-      usingWorkspaceOverride: Boolean(override),
+      usingWorkspaceOverride: this.isUsingWorkspaceOverride(),
       indexDbPath,
       workspaceNotice: this.workspaceNotice,
     };
@@ -859,6 +909,11 @@ export class ThunderController {
   }
 
   resolveWorkspacePath(): string {
+    const vscodeFolder = this.getPrimaryVscodeFolder();
+    if (vscodeFolder) {
+      return vscodeFolder;
+    }
+
     const override = this.configService.getWorkspaceOverride();
     if (override) {
       const resolved = normalizeWorkspaceRoot(override);
@@ -871,7 +926,12 @@ export class ThunderController {
       }
       return resolved;
     }
-    return normalizeWorkspaceRoot(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '') ?? '';
+    return '';
+  }
+
+  /** Whether Thunder is using a manual path override (no VS Code folder open). */
+  isUsingWorkspaceOverride(): boolean {
+    return !this.getPrimaryVscodeFolder() && Boolean(this.configService.getWorkspaceOverride());
   }
 
   private setWorkspaceNotice(kind: 'ok' | 'error' | 'warn', message: string): void {
@@ -1054,8 +1114,31 @@ export class ThunderController {
   }
 
   async reloadWorkspace(): Promise<void> {
+    const vscodeFolder = this.getPrimaryVscodeFolder();
+    const override = this.configService.getWorkspaceOverride();
+    if (vscodeFolder && override) {
+      const normalizedOverride = normalizeWorkspaceRoot(override);
+      if (normalizedOverride && normalizedOverride !== vscodeFolder) {
+        log.info('Clearing stale workspace override; VS Code folder takes precedence', {
+          vscodeFolder,
+          override: normalizedOverride,
+        });
+        await this.configService.clearWorkspaceOverride();
+      }
+    }
+
     const workspace = this.resolveWorkspacePath();
+    const source: 'vscode' | 'override' | 'none' = vscodeFolder
+      ? 'vscode'
+      : override
+        ? 'override'
+        : 'none';
+    this.logWorkspaceResolution(workspace, source);
+
     this.session = new ThunderSession(workspace);
+    if (workspace) {
+      this.configureSessionLogging(this.session, workspace);
+    }
     this.chatOrchestrator = undefined;
     this.indexService?.dispose();
     this.indexService = undefined;
@@ -1082,6 +1165,88 @@ export class ThunderController {
 
     this.notifyUi(await this.buildUiState());
     log.info('Workspace reloaded', { workspace });
+    if (workspace) {
+      void this.maybeAutoIndex();
+    }
+  }
+
+  finishAgentTurn(options?: { hadError?: boolean }): void {
+    this.agentLiveStatus = null;
+    const pending = this.approvalQueue?.getPending() ?? [];
+    if (pending.length > 0) {
+      this.notifyUi({ agentLiveStatus: null });
+      return;
+    }
+
+    const audit = this.toolRuntime.getAuditLog();
+    const summary = this.buildTurnSummary(audit);
+    const hadActivityErrors = this.agentActivity.some((entry) => entry.kind === 'error');
+    const hadError = options?.hadError || hadActivityErrors;
+
+    const entry: import('../vscode/webview/messages').AgentActivityEntry = {
+      id: `act-complete-${Date.now()}`,
+      kind: hadError ? 'error' : 'success',
+      message: hadError ? 'Completed with issues' : 'All done',
+      detail: summary,
+      timestamp: Date.now(),
+    };
+    this.agentActivity = [...this.agentActivity.filter((e) => e.kind !== 'success'), entry];
+    this.sessionLog.append('turn_complete', entry.message, {
+      summary,
+      toolCalls: audit.length,
+      hadError,
+      tools: audit.map((a) => a.toolName),
+    });
+    this.notifyUi({ agentActivity: this.agentActivity, agentLiveStatus: null });
+  }
+
+  private buildTurnSummary(audit: import('./tools/types').ToolCallAudit[]): string {
+    const lines: string[] = [];
+    const writes = new Set<string>();
+    const reads = new Set<string>();
+    const commands: string[] = [];
+    const mcpCalls = new Map<string, number>();
+
+    for (const { toolName, input, result } of audit) {
+      if (toolName.startsWith('mcp__')) {
+        const server = toolName.split('__')[1] ?? 'mcp';
+        mcpCalls.set(server, (mcpCalls.get(server) ?? 0) + 1);
+        continue;
+      }
+      const record = input as Record<string, unknown>;
+      if (toolName === 'write_file' || toolName === 'apply_patch') {
+        if (typeof record.path === 'string' && result.success) writes.add(record.path);
+      } else if (toolName === 'read_file' || toolName === 'read_files') {
+        if (typeof record.path === 'string') reads.add(record.path);
+        if (Array.isArray(record.paths)) {
+          for (const p of record.paths) {
+            if (typeof p === 'string') reads.add(p);
+          }
+        }
+      } else if (toolName === 'run_command' && typeof record.command === 'string') {
+        commands.push(record.command.slice(0, 100));
+      }
+    }
+
+    if (writes.size > 0) {
+      lines.push(`Modified ${writes.size} file(s): ${[...writes].slice(0, 8).join(', ')}${writes.size > 8 ? '…' : ''}`);
+    }
+    if (reads.size > 0) {
+      lines.push(`Read ${reads.size} file(s)`);
+    }
+    if (commands.length > 0) {
+      lines.push(`Ran ${commands.length} command(s)`);
+    }
+    if (mcpCalls.size > 0) {
+      const mcpSummary = [...mcpCalls.entries()]
+        .map(([server, count]) => `${server} (${count})`)
+        .join(', ');
+      lines.push(`MCP: ${mcpSummary}`);
+    }
+    if (audit.length > 0) {
+      lines.push(`${audit.length} tool call(s) this turn`);
+    }
+    return lines.length > 0 ? lines.join('\n') : 'Response complete — no tool actions';
   }
 
   getSessionLogService(): SessionLogService {
@@ -1586,8 +1751,40 @@ export class ThunderController {
     this.indexQueue.enqueue(jobs);
     this.indexingStatus = this.indexQueue.getStatus();
     this.setWorkspaceNotice('ok', `Indexing ${jobs.length} files…`);
+    this.sessionLog.append('index_start', `Indexing ${jobs.length} files`, {
+      workspace,
+      added: diff.added.length,
+      changed: diff.changed.length,
+      removed: diff.deleted.length,
+    });
     this.notifyUi({ indexing: this.indexingStatus, workspaceNotice: this.workspaceNotice });
     log.info('indexWorkspace', { total: jobs.length });
+
+    void this.waitForIndexingComplete(workspace, jobs.length);
+  }
+
+  private async waitForIndexingComplete(workspace: string, jobCount: number): Promise<void> {
+    if (!this.indexQueue || jobCount === 0) {
+      this.sessionLog.append('index_complete', 'Index up to date', { workspace, jobCount: 0 });
+      return;
+    }
+
+    const start = Date.now();
+    while (this.indexQueue.getStatus().running || this.indexQueue.getStatus().queued > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (Date.now() - start > 600_000) break;
+    }
+
+    const status = this.indexQueue.getStatus();
+    this.sessionLog.append('index_complete', 'Indexing finished', {
+      workspace,
+      jobCount,
+      indexed: status.indexed,
+      failed: status.failed,
+      durationMs: Date.now() - start,
+    });
+    this.setWorkspaceNotice('ok', `Indexed ${status.indexed} files`);
+    this.notifyUi({ indexing: status, workspaceNotice: this.workspaceNotice });
   }
 
   dispose(): void {

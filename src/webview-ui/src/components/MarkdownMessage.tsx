@@ -122,8 +122,17 @@ function renderTextBlock(text: string, baseKey: string): JSX.Element[] {
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
-    const value = paragraph.join(' ').trim();
-    if (value) nodes.push(<p key={`${baseKey}-p-${nodes.length}`}>{renderInline(value)}</p>);
+    if (paragraph.length === 1) {
+      const value = paragraph[0].trim();
+      if (value) nodes.push(<p key={`${baseKey}-p-${nodes.length}`}>{renderInline(value)}</p>);
+    } else {
+      for (const line of paragraph) {
+        const value = line.trim();
+        if (value) {
+          nodes.push(<p key={`${baseKey}-p-${nodes.length}`}>{renderInline(value)}</p>);
+        }
+      }
+    }
     paragraph = [];
   };
 

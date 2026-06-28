@@ -90,7 +90,12 @@ export function App() {
 
       {state.tab === 'chat' ? (
         <div className="chat-shell">
-          <PlanPanel plan={state.plan} />
+          <PlanPanel
+            plan={state.plan}
+            mode={state.mode}
+            loading={state.loading}
+            liveStatus={state.agentLiveStatus}
+          />
           <ContextPanel
             items={state.pinnedContext}
             onRemove={(path) => postMessage({ type: 'removePinnedContext', payload: { path } })}

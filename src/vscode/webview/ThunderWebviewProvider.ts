@@ -454,6 +454,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
           options: r.options,
         })),
       };
+      this.controller.finishAgentTurn();
       this.archiveCurrentThread();
       this.state = { ...this.state, chatHistory: this.historySummaries() };
       this.postMessage({ type: 'state', payload: this.state });
@@ -465,6 +466,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error) {
       this.isStreaming = false;
       const safe = normalizeError(error);
+      this.controller.finishAgentTurn({ hadError: true });
       this.state = {
         ...this.state,
         loading: false,
@@ -568,6 +570,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
           options: r.options,
         })),
       };
+      this.controller.finishAgentTurn();
       this.archiveCurrentThread();
       this.state = { ...this.state, chatHistory: this.historySummaries() };
       this.postMessage({ type: 'state', payload: this.state });
@@ -583,6 +586,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
     } catch (error) {
       this.isStreaming = false;
       const safe = normalizeError(error);
+      this.controller.finishAgentTurn({ hadError: true });
       this.state = {
         ...this.state,
         loading: false,

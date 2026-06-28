@@ -16,29 +16,51 @@ const KIND_LABEL: Record<AgentActivityEntry['kind'], string> = {
   approval: 'Approval',
   error: 'Error',
   tool: 'Tool',
+  success: 'Done',
 };
+
+type ActivityPhase = 'working' | 'waiting' | 'complete' | 'error';
+
+function resolvePhase(loading: boolean, waitingForApproval: boolean, entries: AgentActivityEntry[]): ActivityPhase {
+  if (loading) return 'working';
+  if (waitingForApproval) return 'waiting';
+  if (entries.some((entry) => entry.kind === 'success')) return 'complete';
+  if (entries.some((entry) => entry.kind === 'error')) return 'error';
+  return 'complete';
+}
 
 export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApproval = false }: AgentActivityPanelProps) {
   const visible = entries.slice(-12);
   const latest = entries[entries.length - 1];
+  const phase = resolvePhase(loading, waitingForApproval, entries);
+  const completionEntry = [...entries].reverse().find((entry) => entry.kind === 'success' || entry.kind === 'error');
   const statusLabel = loading
     ? liveStatus?.label ?? 'Working through steps'
     : waitingForApproval
       ? 'Waiting for your approval'
-      : 'Activity complete';
+      : phase === 'error'
+        ? 'Completed with issues'
+        : 'All done';
   const progressLabel = liveStatus?.stepCurrent && liveStatus.stepTotal
     ? `${liveStatus.stepCurrent}/${liveStatus.stepTotal}`
     : undefined;
+  const summaryDetail = !loading && !waitingForApproval && completionEntry?.detail
+    ? completionEntry.detail
+    : latest?.detail
+      ? summarizeDetail(latest.detail)
+      : liveStatus?.detail;
 
   if (entries.length === 0 && !loading && !waitingForApproval) return null;
 
   return (
-    <details className="assistant-thinking" aria-label="Agent activity">
+    <details
+      className={`assistant-thinking assistant-thinking--${phase}`}
+      open={phase === 'complete' || phase === 'error'}
+      aria-label="Agent activity"
+    >
       <summary className="assistant-thinking__summary">
         <span
-          className={`message-working__pulse ${
-            waitingForApproval && !loading ? 'message-working__pulse--waiting' : ''
-          }`}
+          className={`message-working__pulse message-working__pulse--${phase}`}
           aria-hidden="true"
         />
         <span className="assistant-thinking__summary-main">
@@ -47,12 +69,25 @@ export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApp
             {progressLabel ? ` · ${progressLabel}` : ''}
           </span>
           <span className="assistant-thinking__latest">
-            {latest ? latest.message : liveStatus?.detail ?? 'Preparing activity'}
-            {latest?.detail ? ` · ${summarizeDetail(latest.detail)}` : liveStatus?.detail ? ` · ${liveStatus.detail}` : ''}
+            {phase === 'complete' || phase === 'error'
+              ? completionEntry?.message ?? latest?.message ?? 'Turn finished'
+              : latest
+                ? latest.message
+                : liveStatus?.detail ?? 'Preparing activity'}
+            {summaryDetail && phase !== 'working' ? ` · ${summarizeDetail(summaryDetail)}` : ''}
+            {summaryDetail && phase === 'working' && latest?.detail ? ` · ${summarizeDetail(latest.detail)}` : ''}
+            {!summaryDetail && phase === 'working' && liveStatus?.detail ? ` · ${liveStatus.detail}` : ''}
           </span>
         </span>
         {entries.length > 1 && <span className="assistant-thinking__count">{entries.length}</span>}
       </summary>
+      {phase === 'complete' && completionEntry?.detail && (
+        <div className="assistant-thinking__summary-block" role="status">
+          {completionEntry.detail.split('\n').map((line, index) => (
+            <p key={index}>{line}</p>
+          ))}
+        </div>
+      )}
       <ol className="assistant-thinking__list">
         {visible.map((entry, index) => {
           const isLatest = index === visible.length - 1;
@@ -65,7 +100,7 @@ export function AgentActivityPanel({ entries, loading, liveStatus, waitingForApp
             >
               <span className="assistant-thinking__kind">{KIND_LABEL[entry.kind]}</span>
               <span className="assistant-thinking__message">{entry.message}</span>
-              {entry.detail && (
+              {entry.detail && entry.kind !== 'success' && (
                 <span className="assistant-thinking__detail">{summarizeDetail(entry.detail)}</span>
               )}
             </li>

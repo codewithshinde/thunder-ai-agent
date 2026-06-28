@@ -23,6 +23,7 @@ export function readThunderConfigFromSettings(): ThunderConfig {
     },
     indexing: {
       enabled: config.get<boolean>('indexing.enabled'),
+      autoIndexOnOpen: config.get<boolean>('indexing.autoIndexOnOpen'),
       maxFileSizeBytes: config.get<number>('indexing.maxFileSizeBytes'),
       hardSkipSizeBytes: config.get<number>('indexing.hardSkipSizeBytes'),
       respectGitignore: config.get<boolean>('indexing.respectGitignore'),

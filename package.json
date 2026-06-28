@@ -112,6 +112,11 @@
           "default": true,
           "description": "Enable workspace indexing"
         },
+        "thunder.indexing.autoIndexOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically index the workspace when a folder is opened or switched."
+        },
         "thunder.indexing.maxFileSizeBytes": {
           "type": "number",
           "default": 512000,
@@ -285,7 +290,7 @@
         "thunder.workspace.rootPathOverride": {
           "type": "string",
           "default": "",
-          "description": "Override workspace root for indexing and context. Leave empty to use the VS Code open folder."
+          "description": "Fallback workspace root when no VS Code folder is open. When a folder is open, Thunder always uses that folder and ignores this setting."
         }
       }
     }

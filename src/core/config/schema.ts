@@ -21,6 +21,7 @@ export const VectorBackendSchema = z.enum(['sqlite', 'lancedb']).default('sqlite
 
 export const IndexingConfigSchema = z.object({
   enabled: z.boolean().default(true),
+  autoIndexOnOpen: z.boolean().default(true),
   maxFileSizeBytes: z.number().int().positive().default(512_000),
   hardSkipSizeBytes: z.number().int().positive().default(2_000_000),
   respectGitignore: z.boolean().default(true),

@@ -13,8 +13,16 @@ export function WorkspaceBanner({
   usingWorkspaceOverride,
   indexed,
 }: WorkspaceBannerProps) {
-  if (workspaceOpen && indexed > 0) {
+  if (workspaceOpen && indexed > 0 && !usingWorkspaceOverride) {
     return null;
+  }
+
+  if (workspaceOpen && indexed > 0) {
+    return (
+      <div className="workspace-banner workspace-banner--info" role="status">
+        Using VS Code folder: <code title={workspacePath}>{shortPath(workspacePath)}</code>
+      </div>
+    );
   }
 
   if (!workspaceOpen) {
@@ -31,8 +39,8 @@ export function WorkspaceBanner({
   return (
     <div className="workspace-banner workspace-banner--info" role="status">
       <code title={workspacePath}>{shortPath(workspacePath)}</code>
-      {usingWorkspaceOverride && <span> (override)</span>}
-      {' '}— not indexed. Use Settings → Index.
+      {usingWorkspaceOverride && <span> (manual override — open a VS Code folder to auto-detect)</span>}
+      {' '}— indexing…
     </div>
   );
 }

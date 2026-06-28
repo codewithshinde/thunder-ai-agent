@@ -826,9 +826,16 @@ export class ChatOrchestrator {
     compacted: ChatMessage[]
   ): TokenUsageBreakdownItem[] {
     const systemPrompt = messages.find((m) => m.role === 'system')?.content ?? '';
-    const tools = this.deps.toolRuntime
-      ? JSON.stringify(toolsToDefinitions(this.deps.toolRuntime.list()))
-      : '';
+    const allTools = this.deps.toolRuntime?.list() ?? [];
+    const builtinDefs = JSON.stringify(toolsToDefinitions(allTools.filter((t) => !t.name.startsWith('mcp__'))));
+    const mcpByServer = new Map<string, typeof allTools>();
+    for (const tool of allTools) {
+      if (!tool.name.startsWith('mcp__')) continue;
+      const server = tool.name.split('__')[1] ?? 'mcp';
+      const list = mcpByServer.get(server) ?? [];
+      list.push(tool);
+      mcpByServer.set(server, list);
+    }
     const sourceTokens = (sources: string[]) =>
       pack.items
         .filter((item) => sources.includes(item.source))
@@ -841,16 +848,27 @@ export class ChatOrchestrator {
       .reduce((sum, item) => sum + item.tokenEstimate, 0);
     const conversation = estimatePromptTokens(compacted);
 
-    return [
+    const items: TokenUsageBreakdownItem[] = [
       { label: 'System prompt', tokens: Math.ceil(systemPrompt.length / 4), color: '#8b949e' },
-      { label: 'Tool definitions', tokens: Math.ceil(tools.length / 4), color: '#a78bfa' },
+      { label: 'Builtin tools', tokens: Math.ceil(builtinDefs.length / 4), color: '#a78bfa' },
       { label: 'Rules', tokens: sourceTokens(['project-rules']), color: '#4ade80' },
       { label: 'Skills', tokens: sourceTokens(['skills']), color: '#fbbf24' },
       { label: 'Memory', tokens: sourceTokens(['memory']), color: '#60a5fa' },
       { label: 'Pinned context', tokens: explicitContext, color: '#f472b6' },
       { label: 'Workspace context', tokens: fileContext, color: '#94a3b8' },
       { label: 'Conversation', tokens: conversation, color: '#64748b' },
-    ].filter((item) => item.tokens > 0);
+    ];
+
+    for (const [server, tools] of mcpByServer) {
+      const defs = JSON.stringify(toolsToDefinitions(tools));
+      items.push({
+        label: `MCP: ${server}`,
+        tokens: Math.ceil(defs.length / 4),
+        color: '#c084fc',
+      });
+    }
+
+    return items.filter((item) => item.tokens > 0);
   }
 
   private savePauseState(

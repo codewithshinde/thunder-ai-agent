@@ -23,7 +23,12 @@ export type SessionLogEventType =
   | 'process_end'
   | 'timing'
   | 'error'
-  | 'info';
+  | 'info'
+  | 'workspace_resolved'
+  | 'index_start'
+  | 'index_complete'
+  | 'turn_complete'
+  | 'ui_trace';
 
 export interface SessionLogEvent {
   ts: number;
@@ -80,6 +85,12 @@ export class SessionLogService {
   appendDebug(type: SessionLogEventType, message: string, data?: Record<string, unknown>): void {
     if (!this.isEnabled() || !this.debugMetrics) return;
     this.writeEvent(type, message, data);
+  }
+
+  /** UI and internal traces — only when debugMetrics is enabled. */
+  appendUiTrace(message: string, data?: Record<string, unknown>): void {
+    if (!this.isEnabled() || !this.debugMetrics) return;
+    this.writeEvent('ui_trace', message, data);
   }
 
   /** Record how long a named process took. Always logged when session logging is on. */
@@ -219,15 +230,7 @@ function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown
 
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
-    const lower = key.toLowerCase();
-    if (
-      lower.includes('key') ||
-      lower.includes('token') ||
-      lower.includes('secret') ||
-      lower.includes('password') ||
-      lower.includes('authorization') ||
-      lower.includes('apikey')
-    ) {
+    if (shouldRedactKey(key)) {
       out[key] = typeof value === 'string' ? '[REDACTED]' : value;
       continue;
     }
@@ -238,4 +241,33 @@ function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown
     }
   }
   return out;
+}
+
+/** Redact secrets but preserve token usage metrics (promptTokens, sessionTotal, etc.). */
+function shouldRedactKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  if (
+    lower.endsWith('tokens') ||
+    lower.includes('tokenusage') ||
+    lower.includes('token_count') ||
+    lower === 'sessiontotal' ||
+    lower === 'turncount'
+  ) {
+    return false;
+  }
+  return (
+    lower.includes('apikey') ||
+    lower.includes('api_key') ||
+    lower === 'authorization' ||
+    lower.includes('secret') ||
+    lower.includes('password') ||
+    (lower.includes('key') && !lower.includes('monkey') && !lower.includes('token')) ||
+    (lower.includes('token') &&
+      (lower.includes('secret') ||
+        lower.includes('api') ||
+        lower.endsWith('key') ||
+        lower === 'token' ||
+        lower === 'accesstoken' ||
+        lower === 'refreshtoken'))
+  );
 }
