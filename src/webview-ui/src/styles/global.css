@@ -169,6 +169,10 @@ body,
   color: var(--thunder-fg);
 }
 
+.token-chip__sep {
+  opacity: 0.5;
+}
+
 .token-popover__panel {
   position: absolute;
   top: calc(100% + 8px);
@@ -553,6 +557,11 @@ body,
   margin: 0;
   color: var(--thunder-muted);
   font-style: italic;
+}
+
+.message-working--muted {
+  font-size: 12px;
+  opacity: 0.75;
 }
 
 .message-working__pulse {
@@ -2402,6 +2411,22 @@ body,
 .context-debugger__meter-fill {
   height: 100%;
   background: var(--thunder-accent);
+}
+
+.context-debugger__meter--request {
+  height: 3px;
+  margin-top: -4px;
+  opacity: 0.85;
+}
+
+.context-debugger__meter-fill--request {
+  background: #60a5fa;
+}
+
+.token-popover__summary--secondary {
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.85;
 }
 
 .context-debugger__body {

@@ -41,6 +41,7 @@ import { createMarkStepCompleteTool, createProposePlanMutationTool } from './too
 import { OpenAiCompatibleProvider } from './llm/OpenAiCompatibleProvider';
 import type { LlmProvider } from './llm/types';
 import { UsageTrackingProvider, type ModelCallUsage } from './llm/UsageTrackingProvider';
+import { scaffoldMitiiWorkspace } from './mcp/scaffoldMitiiWorkspace';
 import { AgentTaskState } from './agent/AgentTaskState';
 import { isApprovalContinuationMessage } from './agent/taskMessage';
 import { ToolPolicyEngine } from './safety/ToolPolicyEngine';
@@ -162,6 +163,10 @@ export class ThunderController {
   private resumeApprovalResults: import('./agent/AgentLoop').ApprovedToolResult[] = [];
   private agentTaskState = new AgentTaskState();
   private pinnedContext: PinnedContextView[] = [];
+  private indexStatusNotifyTimer: ReturnType<typeof setTimeout> | undefined;
+  private pendingIndexStatus: IndexingStatus | undefined;
+  private tokenUsageNotifyTimer: ReturnType<typeof setTimeout> | undefined;
+  private pendingTokenUsage: TokenUsageView | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.configService = new ConfigService(context);
@@ -190,15 +195,54 @@ export class ThunderController {
 
   private notifyUi(partial: Partial<WebviewState>): void {
     if (this.sessionLog.isEnabled() && this.configService.getConfig().telemetry.debugMetrics) {
-      this.sessionLog.appendUiTrace('UI partial update', {
-        keys: Object.keys(partial),
-        loading: partial.loading,
-        activityCount: partial.agentActivity?.length,
-        planSteps: partial.plan?.steps.length,
-        indexingRunning: partial.indexing?.running,
-      });
+      const keys = Object.keys(partial);
+      const skipTrace =
+        (keys.length === 1 && keys[0] === 'indexing') ||
+        (keys.length === 1 && keys[0] === 'tokenUsage');
+      if (!skipTrace) {
+        this.sessionLog.appendUiTrace('UI partial update', {
+          keys,
+          loading: partial.loading,
+          activityCount: partial.agentActivity?.length,
+          planSteps: partial.plan?.steps.length,
+          indexingRunning: partial.indexing?.running,
+        });
+      }
     }
+
+    if (partial.indexing && Object.keys(partial).length === 1) {
+      this.scheduleIndexingUiUpdate(partial.indexing);
+      return;
+    }
+    if (partial.tokenUsage && Object.keys(partial).length === 1) {
+      this.scheduleTokenUsageUiUpdate(partial.tokenUsage);
+      return;
+    }
+
     this.uiUpdate?.(partial);
+  }
+
+  private scheduleIndexingUiUpdate(status: IndexingStatus): void {
+    this.indexingStatus = status;
+    this.pendingIndexStatus = status;
+    if (this.indexStatusNotifyTimer) return;
+    this.indexStatusNotifyTimer = setTimeout(() => {
+      this.indexStatusNotifyTimer = undefined;
+      const next = this.pendingIndexStatus;
+      this.pendingIndexStatus = undefined;
+      if (next) this.uiUpdate?.({ indexing: next });
+    }, 250);
+  }
+
+  private scheduleTokenUsageUiUpdate(usage: TokenUsageView): void {
+    this.pendingTokenUsage = usage;
+    if (this.tokenUsageNotifyTimer) return;
+    this.tokenUsageNotifyTimer = setTimeout(() => {
+      this.tokenUsageNotifyTimer = undefined;
+      const next = this.pendingTokenUsage;
+      this.pendingTokenUsage = undefined;
+      if (next) this.uiUpdate?.({ tokenUsage: next });
+    }, 200);
   }
 
   private configureSessionLogging(session: ThunderSession, workspace: string): void {
@@ -341,6 +385,7 @@ export class ThunderController {
 
     this.indexService = new IndexService(workspace);
     await this.indexService.initialize();
+    scaffoldMitiiWorkspace(workspace);
 
     const db = this.indexService.getDb();
     if (!db) return;
@@ -371,8 +416,7 @@ export class ThunderController {
       });
     }
     this.indexQueue.onStatusChange((status) => {
-      this.indexingStatus = status;
-      this.notifyUi({ indexing: status });
+      this.scheduleIndexingUiUpdate(status);
     });
     this.indexingStatus = this.indexQueue.getStatus();
 
@@ -1071,11 +1115,9 @@ export class ThunderController {
       estimated: usage.estimated,
     });
 
-    this.notifyUi({
-      tokenUsage: {
-        ...this.tokenUsage,
-        contextWindow: this.configService.getConfig().provider.contextWindow,
-      },
+    this.scheduleTokenUsageUiUpdate({
+      ...this.tokenUsage,
+      contextWindow: this.configService.getConfig().provider.contextWindow,
     });
   }
 
@@ -1166,7 +1208,7 @@ export class ThunderController {
       this.agentLiveStatus = null;
       this.pendingApprovalOutputs = [];
       this.agentTaskState.reset();
-      this.notifyUi({ agentActivity: [], agentLiveStatus: null, contextBudget: null, subagents: [] });
+      this.notifyUi({ agentActivity: [], agentLiveStatus: null, subagents: [] });
     }
 
     this.ensureChatOrchestrator();
@@ -1328,7 +1370,8 @@ export class ThunderController {
     const audit = this.toolRuntime.getAuditLog();
     const summary = this.buildTurnSummary(audit);
     const hadActivityErrors = this.agentActivity.some((entry) => entry.kind === 'error');
-    const hadError = options?.hadError || hadActivityErrors;
+    const hadToolFailures = audit.some((entry) => !entry.result.success);
+    const hadError = options?.hadError || hadActivityErrors || hadToolFailures;
 
     const entry: import('../vscode/webview/messages').AgentActivityEntry = {
       id: `act-complete-${Date.now()}`,

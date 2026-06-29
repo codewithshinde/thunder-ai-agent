@@ -47,7 +47,9 @@ export function MessageList({ messages, loading, agentActivity = [], agentLiveSt
                   <span className="message-working__pulse" aria-hidden="true" />
                   Thinking…
                 </p>
-              ) : null
+              ) : (
+                <p className="message-working message-working--muted">No response text</p>
+              )
             ) : (
               msg.content
             )}

@@ -1,5 +1,6 @@
 const FILE_MENTION_PATTERN =
   /\b[\w./-]+\.(tsx?|jsx?|vue|svelte|py|go|rs|java|kt|swift|md|json|css|scss|html|yaml|yml|toml)\b/gi;
+const PACKAGE_LIKE_PATTERN = /\b[a-z][a-z0-9]*(?:-[a-z0-9]+)+\b/gi;
 
 export function extractFileMentions(text: string): string[] {
   const matches = text.match(FILE_MENTION_PATTERN) ?? [];
@@ -38,6 +39,10 @@ export function extractIndexedSearchTerms(text: string): string[] {
     for (const term of expandCamelCaseTerms(component)) {
       terms.add(term);
     }
+  }
+
+  for (const packageName of text.match(PACKAGE_LIKE_PATTERN) ?? []) {
+    terms.add(packageName.toLowerCase());
   }
 
   return [...terms].filter((t) => t.length >= 3);

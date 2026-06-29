@@ -314,7 +314,7 @@ export type ExtensionToWebviewMessage =
   | { type: 'setTab'; payload: WebviewTab }
   | { type: 'setIndexing'; payload: IndexingStatusView }
   | { type: 'setApprovals'; payload: ApprovalRequestView[] }
-  | { type: 'setContextPreview'; payload: { items: ContextItemView[]; totalTokens: number } }
+  | { type: 'setContextPreview'; payload: { items: ContextItemView[]; totalTokens: number; budget?: ContextBudgetView | null } }
   | { type: 'setPlan'; payload: PlanView | null }
   | { type: 'setAgentActivity'; payload: AgentActivityEntry[] }
   | { type: 'setAgentLiveStatus'; payload: AgentLiveStatusView | null }

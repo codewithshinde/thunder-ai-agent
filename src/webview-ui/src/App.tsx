@@ -124,6 +124,8 @@ export function App() {
             budget={state.contextBudget}
             items={state.contextPreview}
             totalTokens={state.contextTokenEstimate}
+            lastRequestTokens={state.tokenUsage.lastCallInputTokens || state.tokenUsage.lastPromptTokens}
+            contextWindow={state.tokenUsage.contextWindow}
             expanded={state.showContextPreview}
             onToggle={() => postMessage({ type: 'toggleContextPreview' })}
           />

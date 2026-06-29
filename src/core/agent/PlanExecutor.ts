@@ -591,6 +591,26 @@ function validatePlanQuality(plan: ThunderPlan, taskAnalysis?: TaskAnalysis): st
     issues.push('Planned tasks must contain at least 2 steps.');
   }
 
+  if (isDocumentationPlan(taskAnalysis)) {
+    const planText = plan.steps
+      .map((step) => [
+        step.title,
+        step.objective,
+        step.tools?.join(' '),
+        step.successCriteria?.join(' '),
+        step.files?.join(' '),
+      ].filter(Boolean).join(' '))
+      .join('\n')
+      .toLowerCase();
+
+    if (!/(docusaurus\.config|sidebars?|navbar|routebasepath|sidebarpath|docspluginid|docs plugin|docs routing)/i.test(planText)) {
+      issues.push('Documentation plans must inspect/update docs routing/config such as docusaurus.config.ts, sidebars, navbar, or docs plugin settings.');
+    }
+    if (!phases.has('verify') && !/\b(build|validate|verify|test)\b/.test(planText)) {
+      issues.push('Documentation plans must include a verification step, such as running the docs build.');
+    }
+  }
+
   const vagueSteps = plan.steps.filter((step) => step.title.trim().split(/\s+/).length < 3);
   if (vagueSteps.length > 0) {
     issues.push(`Step titles are too vague: ${vagueSteps.map((step) => step.id).join(', ')}.`);
@@ -604,6 +624,13 @@ function validatePlanQuality(plan: ThunderPlan, taskAnalysis?: TaskAnalysis): st
   }
 
   return issues;
+}
+
+function isDocumentationPlan(taskAnalysis?: TaskAnalysis): boolean {
+  return Boolean(
+    taskAnalysis?.kind === 'implementation' &&
+    /\b(documentation|docs?|docusaurus)\b/i.test(taskAnalysis.summary)
+  );
 }
 
 function normalizeRisk(risk: unknown): 'low' | 'medium' | 'high' {

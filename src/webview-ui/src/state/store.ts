@@ -24,7 +24,7 @@ export type WebviewAction =
   | { type: 'SET_TAB'; payload: WebviewTab }
   | { type: 'SET_INDEXING'; payload: IndexingStatusView }
   | { type: 'SET_APPROVALS'; payload: ApprovalRequestView[] }
-  | { type: 'SET_CONTEXT_PREVIEW'; payload: { items: ContextItemView[]; totalTokens: number } }
+  | { type: 'SET_CONTEXT_PREVIEW'; payload: { items: ContextItemView[]; totalTokens: number; budget?: ContextBudgetView | null } }
   | { type: 'SET_PLAN'; payload: PlanView | null }
   | { type: 'SET_AGENT_ACTIVITY'; payload: AgentActivityEntry[] }
   | { type: 'SET_AGENT_LIVE_STATUS'; payload: AgentLiveStatusView | null }
@@ -106,6 +106,7 @@ export function webviewReducer(state: WebviewState, action: WebviewAction): Webv
         ...state,
         contextPreview: action.payload.items,
         contextTokenEstimate: action.payload.totalTokens,
+        ...(action.payload.budget !== undefined ? { contextBudget: action.payload.budget } : {}),
       };
 
     case 'SET_PLAN':

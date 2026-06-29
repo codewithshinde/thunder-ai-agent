@@ -17,7 +17,7 @@ const ACTION_VERBS =
   /\b(implement|build|create|add|fix|refactor|migrate|rewrite|update|remove|delete|integrate|wire|connect|setup|configure|optimize|improve|imporve|enhance|polish|redesign|debug|test|change|replace)\b/i;
 
 const IMPLEMENTATION_HINTS =
-  /\b(need|change|replace|ui|ux|landing page|animated|animation|enterprise|implement|create|fix)\b/i;
+  /\b(need|change|replace|ui|ux|landing page|animated|animation|enterprise|implement|create|fix|docs?|documentation|docusaurus|examples?)\b/i;
 
 const UI_POLISH_SCOPE =
   /\b(ui|ux|layout|component|components|card|cards|child components?|screen|view|style|styles|visual|visuals|interaction|interactions)\b/i;
@@ -39,6 +39,9 @@ const SIMPLE_EDIT =
 
 const AUDIT_CLEANUP =
   /\b(unus[a-z]*|dead code|orphan|cleanup|clean up|remove\s+(?:all\s+)?(?:the\s+)?(?:(?:uns[a-z]*|unused)\s+)?(?:imports?|files?|dependenc(?:y|ies)?)|depcheck|dependencies audit|dependency audit|find unused|list unused|reduce bundle|tree[- ]shake)\b/i;
+
+const DOCS_IMPLEMENTATION =
+  /\b(add|create|write|update|generate|build)\b[\s\S]{0,80}\b(docs?|documentation|docusaurus|mdx?|examples?)\b|\b(docs?|documentation|docusaurus|mdx?|examples?)\b[\s\S]{0,80}\b(all|every|features?|components?|exports?|api|route|sidebar|navbar|installation|configuration)\b/i;
 
 export function analyzeTask(userMessage: string, mode: string): TaskAnalysis {
   const text = userMessage.trim();
@@ -142,6 +145,18 @@ function classifyTask(text: string): TaskAnalysis {
     };
   }
 
+  if (DOCS_IMPLEMENTATION.test(text)) {
+    const docsComplexity = estimateComplexity(text) === 'low' ? 'medium' : estimateComplexity(text);
+    return {
+      kind: 'implementation',
+      complexity: docsComplexity,
+      shouldPlan: true,
+      shouldVerify: true,
+      shouldUseSubagents: docsComplexity === 'high',
+      summary: `Documentation implementation task (${docsComplexity} complexity) — inspect docs routing, existing docs patterns, source exports, then verify the docs build.`,
+    };
+  }
+
   const actionCount = (text.match(ACTION_VERBS) ?? []).length;
   const connectorCount = (text.match(/\b(and|then|also|after that|next)\b/gi) ?? []).length;
   const fileMentions = (text.match(/[`'"]?[\w./-]+\.(tsx?|jsx?|py|go|rs|json|md|css|scss|yaml|yml)[`'"]?/gi) ?? []).length;
@@ -200,7 +215,7 @@ function estimateComplexity(text: string): TaskComplexity {
   if (connectors >= 3) score += 2;
   else if (connectors >= 1) score += 1;
 
-  const actions = text.match(/\b(implement|build|migrate|refactor|rewrite|integrate)\b/gi)?.length ?? 0;
+  const actions = text.match(/\b(implement|build|migrate|refactor|rewrite|integrate|document|docs?|documentation)\b/gi)?.length ?? 0;
   if (actions >= 2) score += 2;
   else if (actions >= 1) score += 1;
 

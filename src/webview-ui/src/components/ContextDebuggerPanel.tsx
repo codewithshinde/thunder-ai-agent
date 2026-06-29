@@ -4,6 +4,8 @@ interface ContextDebuggerPanelProps {
   budget: ContextBudgetView | null;
   items: ContextItemView[];
   totalTokens: number;
+  lastRequestTokens?: number;
+  contextWindow?: number;
   expanded: boolean;
   onToggle: () => void;
 }
@@ -12,30 +14,52 @@ export function ContextDebuggerPanel({
   budget,
   items,
   totalTokens,
+  lastRequestTokens = 0,
+  contextWindow = 0,
   expanded,
   onToggle,
 }: ContextDebuggerPanelProps) {
-  if (!budget && items.length === 0) return null;
+  if (!budget && items.length === 0 && lastRequestTokens <= 0) return null;
 
   const used = budget?.usedTokens ?? totalTokens;
   const limit = budget?.budgetLimit ?? Math.max(used, 1);
   const pct = Math.min(100, Math.round((used / limit) * 100));
+  const requestTokens = lastRequestTokens > 0 ? lastRequestTokens : used;
+  const requestLimit = contextWindow > 0 ? contextWindow : limit;
+  const requestPct = requestLimit > 0
+    ? Math.min(100, Math.round((requestTokens / requestLimit) * 100))
+    : 0;
 
   return (
     <section className="context-debugger" aria-label="Retrieved context debugger">
       <button type="button" className="context-debugger__toggle" onClick={onToggle}>
         <span>Retrieved context</span>
         <span className="context-debugger__meta">
-          {used.toLocaleString()} / {limit.toLocaleString()} tokens ({pct}%)
+          {used.toLocaleString()} / {limit.toLocaleString()} retrieved ({pct}%)
+          {requestTokens > 0 && requestTokens !== used && (
+            <> · {requestTokens.toLocaleString()} / {requestLimit.toLocaleString()} request ({requestPct}%)</>
+          )}
         </span>
         <span className="context-debugger__chevron" aria-hidden="true">
           {expanded ? '▾' : '▸'}
         </span>
       </button>
 
-      <div className="context-debugger__meter" role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+      <div className="context-debugger__meter" role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} title="Retrieved context budget">
         <div className="context-debugger__meter-fill" style={{ width: `${pct}%` }} />
       </div>
+      {requestTokens > 0 && requestLimit > 0 && (
+        <div
+          className="context-debugger__meter context-debugger__meter--request"
+          role="meter"
+          aria-valuenow={requestPct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          title="Latest model request size"
+        >
+          <div className="context-debugger__meter-fill context-debugger__meter-fill--request" style={{ width: `${requestPct}%` }} />
+        </div>
+      )}
 
       {expanded && (
         <div className="context-debugger__body">

@@ -1,7 +1,7 @@
 import { AGENT_NAME } from '../../shared/brand';
 import { z } from 'zod';
-import { readFileSync, readdirSync, writeFileSync, statSync } from 'fs';
-import { isAbsolute, join, relative, resolve } from 'path';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'path';
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import type { Tool, ToolResult } from './types';
@@ -15,7 +15,7 @@ import type { ContextBudgeter } from '../context/ContextBudgeter';
 import type { MemoryService } from '../memory/MemoryService';
 import { PatchApplyService } from '../apply/PatchApplyService';
 import { isDangerousCommand } from '../safety/ToolPolicyEngine';
-import { isReadOnlyCommand } from '../planning/PlanActEngine';
+import { isReadOnlyCommand, stripLeadingCd } from '../planning/PlanActEngine';
 import { normalizeRelPath, normalizeWorkspaceRoot } from '../vscode/pathUtils';
 import { ResearchAgent } from '../agent/ResearchAgent';
 import { isAuditSubagentBlocked, buildScriptFirstAuditMessage } from '../agent/auditRouting';
@@ -66,6 +66,7 @@ function resolveToolPath(_workspace: string, rawPath: string, ignoreService: Ign
 }
 
 const SOURCE_FILE_PATTERN = /\.(?:tsx?|jsx?|mjs|cjs|css|scss|sass|less|json|ya?ml)$/i;
+const READ_FILES_MAX_PATHS = 12;
 const SHELL_COMMAND_CONTENT_PREFIX =
   /^(?:git\s+(?:checkout|restore|reset|clean|pull|push|commit|merge|rebase|switch)\b|(?:npm|yarn|pnpm|npx)\s+|rm\s+-|mv\s+|cp\s+|sed\s+-i\b|cat\s+>|echo\s+.+>|python(?:3)?\s+|node\s+|bash\s+|sh\s+)/i;
 
@@ -98,12 +99,33 @@ export function createReadFileTool(workspace: string, ignoreService: IgnoreServi
 export function createReadFilesTool(workspace: string, ignoreService: IgnoreService): Tool<{ paths: string[] }> {
   return {
     name: 'read_files',
-    description: 'Read multiple workspace files in one call. paths must be a JSON array of strings, e.g. ["src/a.ts","package.json"].',
+    description: 'Read multiple workspace files in one call. Max 12 paths per call; prefer 8-10. If you need more, split into another read_files call.',
     risk: 'low',
-    inputSchema: z.object({ paths: z.array(z.string()).min(1).max(12) }),
+    inputSchema: z.object({ paths: z.array(z.string()).min(1) }),
+    parametersJsonSchema: {
+      type: 'object',
+      properties: {
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          maxItems: READ_FILES_MAX_PATHS,
+          description: 'Workspace-relative file paths. Never send more than 12; prefer batches of 8-10.',
+        },
+      },
+      required: ['paths'],
+    },
     async execute(input): Promise<ToolResult> {
       const parts: string[] = [];
-      for (const path of input.paths.slice(0, 12)) {
+      const paths = input.paths.slice(0, READ_FILES_MAX_PATHS);
+      if (input.paths.length > READ_FILES_MAX_PATHS) {
+        parts.push(
+          `NOTE: read_files accepts at most ${READ_FILES_MAX_PATHS} paths per call. ` +
+          `Reading the first ${READ_FILES_MAX_PATHS}; call read_files again for: ` +
+          input.paths.slice(READ_FILES_MAX_PATHS).join(', ')
+        );
+      }
+      for (const path of paths) {
         const result = await readSingleFile(workspace, path, ignoreService);
         parts.push(result.success
           ? `### ${path}\n${result.output}`
@@ -613,6 +635,7 @@ export function createWriteFileTool(workspace: string, ignoreService: IgnoreServ
       }
       try {
         const fullPath = join(workspace, relPath);
+        mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, input.content, 'utf-8');
         return { success: true, output: `Wrote ${input.content.length} chars to ${relPath}` };
       } catch (e) {
@@ -685,9 +708,8 @@ export function createRunCommandTool(workspace: string, getMode: () => string): 
       } catch (e) {
         const err = e as { code?: number; stdout?: string; stderr?: string; message?: string };
         const output = [err.stdout, err.stderr].filter(Boolean).join('\n').slice(0, 50000);
-        // rg/grep/depcheck exit 1 when no matches or findings — still useful output, not a hard failure
-        if (isReadOnlyCommand(input.command) && (err.code === 1 || output.length > 0)) {
-          log.info('Read-only command non-zero exit treated as success', {
+        if (isBenignNonZeroExit(input.command, err.code)) {
+          log.info('Command exit 1 treated as success (no matches / empty result)', {
             command: input.command.slice(0, 80),
             code: err.code,
           });
@@ -697,6 +719,15 @@ export function createRunCommandTool(workspace: string, getMode: () => string): 
       }
     },
   };
+}
+
+function isBenignNonZeroExit(command: string, code?: number): boolean {
+  if (code !== 1) return false;
+  const cmd = stripLeadingCd(command).trim();
+  if (/^(grep|rg|ag|ack|find)\b/i.test(cmd)) return true;
+  if (/^(npx\s+(--yes\s+)?)?depcheck\b/i.test(cmd)) return true;
+  if (/^(npx\s+(--yes\s+)?)?knip\b/i.test(cmd)) return true;
+  return false;
 }
 
 function normalizeWorkspaceCommand(

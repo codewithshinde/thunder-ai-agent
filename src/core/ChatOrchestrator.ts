@@ -21,6 +21,8 @@ import { createLogger } from './telemetry/Logger';
 import type { SessionLogService } from './telemetry/SessionLogService';
 import { SessionTiming } from './telemetry/SessionTiming';
 import { extractFileMentions } from './context/fuzzyFileMatch';
+import { expandContextQuery } from './context/contextQueryExpansion';
+import { isInternalAgentPath } from './context/contextRelevance';
 import { AutoApplyService } from './apply/AutoApplyService';
 import type { ToolExecutor } from './safety/ToolExecutor';
 import type { ToolRuntime } from './tools/ToolRuntime';
@@ -196,8 +198,11 @@ export class ChatOrchestrator {
 
     const ws = this.deps.workspace ?? '';
     const editor = vscode.window.activeTextEditor;
-    const currentFile = editor && ws
+    const rawCurrentFile = editor && ws
       ? toWorkspaceRelPath(editor.document.uri, ws) ?? undefined
+      : undefined;
+    const currentFile = rawCurrentFile && !isInternalAgentPath(rawCurrentFile)
+      ? rawCurrentFile
       : undefined;
 
     const openFiles: string[] = [];
@@ -209,7 +214,7 @@ export class ChatOrchestrator {
             const uri = (input as { uri: vscode.Uri }).uri;
             if (uri.scheme === 'file') {
               const rel = toWorkspaceRelPath(uri, ws);
-              if (rel) openFiles.push(rel);
+              if (rel && !isInternalAgentPath(rel)) openFiles.push(rel);
             }
           }
         }
@@ -230,9 +235,10 @@ export class ChatOrchestrator {
       );
     }
 
+    const retrievalText = expandContextQuery(userMessage);
     let items;
     const retrievalKey = JSON.stringify({
-      text: userMessage,
+      text: retrievalText,
       currentFile,
       openFiles,
       pinned: pinnedContext.map((p) => p.path),
@@ -249,11 +255,11 @@ export class ChatOrchestrator {
         sessionTiming.end('context_retrieval', sessionLog, { success: true, itemCount: items.length, cached: true });
       } else {
         items = await this.retriever.retrieve({
-          text: userMessage,
+          text: retrievalText,
           currentFile,
           openFiles,
           pinnedContext: pinnedContext.map((p) => ({ path: p.path, kind: p.kind })),
-          maxItems: 28,
+          maxItems: retrievalText === userMessage ? 28 : 40,
         });
         this.retrievalCache = { key: retrievalKey, items, at: Date.now() };
         sessionTiming.end('context_retrieval', sessionLog, {
@@ -413,12 +419,6 @@ export class ChatOrchestrator {
         { final: false }
       );
     };
-    livePromptTokens = estimateChatRequestTokens({
-      messages: [{ role: 'user', content: userMessage }],
-      tools: tools.length > 0 ? tools : undefined,
-    });
-    livePromptMessages = [{ role: 'user', content: userMessage }];
-    emitLiveTokenUsage();
     const sharedLoopCallbacks = this.buildLoopCallbacks(emitLiveTokenUsage);
     const sharedPlanOptions = {
       stepMaxRetries: agentConfig?.stepMaxRetries,
@@ -805,6 +805,12 @@ export class ChatOrchestrator {
     promptMessages?: ChatMessage[],
     explicitContextBlock?: string
   ): Promise<void> {
+    const usageMessages =
+      promptMessages ??
+      buildPrompt(session.mode, pack, userMessage, compacted, false, false, undefined, false, explicitContextBlock);
+    const tokens = promptTokens || estimateChatRequestTokens({ messages: usageMessages });
+    this.emitTurnTokenUsage(tokens, pack, fullResponse, usageMessages, compacted);
+
     if (!fullResponse) return;
 
     this.saveTurn(session.id, 'assistant', fullResponse);
@@ -844,10 +850,15 @@ export class ChatOrchestrator {
       );
     }
 
-    const usageMessages =
-      promptMessages ??
-      buildPrompt(session.mode, pack, userMessage, compacted, false, false, undefined, false, explicitContextBlock);
-    const tokens = promptTokens || estimateChatRequestTokens({ messages: usageMessages });
+  }
+
+  private emitTurnTokenUsage(
+    tokens: number,
+    pack: ContextPack,
+    fullResponse: string,
+    usageMessages: ChatMessage[],
+    compacted: ChatMessage[]
+  ): void {
     this.onTokenUsage?.(
       tokens,
       pack.totalTokens,

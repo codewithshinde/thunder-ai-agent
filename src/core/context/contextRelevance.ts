@@ -1,5 +1,8 @@
 import { extractFileMentions } from './fuzzyFileMatch';
 
+const INTERNAL_AGENT_PATH =
+  /(^|\/)(?:\.git|\.mitii|\.thunder|node_modules|dist|build|out)(?:\/|$)/i;
+
 /** User is asking about errors, lint, or fixing broken code. */
 export function isDiagnosticsRelevant(text: string): boolean {
   return /\b(error|errors|lint|diagnostic|typecheck|fix|broken|failing|warning|warnings|compile|build fail|doesn'?t work|not working|bug)\b/i.test(
@@ -20,6 +23,10 @@ export function isFileContextRelevant(
   relPath: string,
   options?: { hasSelection?: boolean }
 ): boolean {
+  if (isInternalAgentPath(relPath)) {
+    return false;
+  }
+
   const mentions = extractFileMentions(userMessage);
   const base = relPath.split('/').pop() ?? relPath;
   const stem = base.replace(/\.[^.]+$/, '');
@@ -37,6 +44,10 @@ export function isFileContextRelevant(
   }
 
   return false;
+}
+
+export function isInternalAgentPath(relPath: string): boolean {
+  return INTERNAL_AGENT_PATH.test(relPath.replace(/\\/g, '/'));
 }
 
 /** Score passive editor/tab context — query-relevant files rank higher. */

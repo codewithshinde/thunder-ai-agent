@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 import { IgnoreService } from '../src/core/indexing/IgnoreService';
@@ -63,6 +63,52 @@ describe('IgnoreService', () => {
       expect(result.success).toBe(true);
       expect(result.output).toContain('package.json');
       expect(result.output).not.toContain('node_modules');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('write_file creates parent directories for new nested files', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-write-nested-test-'));
+    try {
+      const { createWriteFileTool } = await import('../src/core/tools/builtinTools');
+      const ig = new IgnoreService();
+      ig.load(tempDir);
+      const tool = createWriteFileTool(tempDir, ig);
+
+      const result = await tool.execute({
+        path: 'apps/docs/docs/ffb-mui/_category_.json',
+        content: '{"label":"ffb-mui"}',
+      });
+
+      expect(result.success).toBe(true);
+      expect(existsSync(join(tempDir, 'apps/docs/docs/ffb-mui/_category_.json'))).toBe(true);
+      expect(readFileSync(join(tempDir, 'apps/docs/docs/ffb-mui/_category_.json'), 'utf8')).toContain('ffb-mui');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('read_files recovers gracefully from batches over 12 paths', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-read-files-limit-test-'));
+    try {
+      const { createReadFilesTool } = await import('../src/core/tools/builtinTools');
+      const ig = new IgnoreService();
+      ig.load(tempDir);
+      for (let i = 1; i <= 13; i++) {
+        writeFileSync(join(tempDir, `file-${i}.ts`), `export const n = ${i};`);
+      }
+      const tool = createReadFilesTool(tempDir, ig);
+
+      const result = await tool.execute({
+        paths: Array.from({ length: 13 }, (_, i) => `file-${i + 1}.ts`),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output).toContain('at most 12 paths');
+      expect(result.output).toContain('file-13.ts');
+      expect(result.output).toContain('### file-12.ts');
+      expect(result.output).not.toContain('### file-13.ts');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -805,6 +851,16 @@ describe('TaskAnalyzer', () => {
     expect(result.shouldPlan).toBe(true);
     expect(result.shouldVerify).toBe(true);
   });
+
+  it('plans broad documentation feature work', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const result = analyzeTask('add docs for all ffb-mui features', 'act');
+
+    expect(result.kind).toBe('implementation');
+    expect(result.complexity).toBe('medium');
+    expect(result.shouldPlan).toBe(true);
+    expect(result.shouldVerify).toBe(true);
+  });
 });
 
 describe('contextRelevance', () => {
@@ -818,6 +874,29 @@ describe('contextRelevance', () => {
     const { isFileContextRelevant } = await import('../src/core/context/contextRelevance');
     expect(isFileContextRelevant('clean up unused deps', 'src/screens/DineInKanban.tsx')).toBe(false);
     expect(isFileContextRelevant('fix DineInKanban.tsx imports', 'src/screens/DineInKanban.tsx')).toBe(true);
+  });
+
+  it('excludes internal agent log files from passive editor context', async () => {
+    const { isFileContextRelevant, isInternalAgentPath } = await import('../src/core/context/contextRelevance');
+    expect(isInternalAgentPath('.thunder/logs/session.jsonl')).toBe(true);
+    expect(isFileContextRelevant('add docs for all ffb-mui features', '.thunder/logs/session.jsonl')).toBe(false);
+  });
+});
+
+describe('context query expansion', () => {
+  it('adds docs routing and package export hints for broad docs tasks', async () => {
+    const { expandContextQuery } = await import('../src/core/context/contextQueryExpansion');
+    const expanded = expandContextQuery('add docs for all ffb-mui features');
+
+    expect(expanded).toContain('apps/docs/docusaurus.config.ts');
+    expect(expanded).toContain('sidebars.ts');
+    expect(expanded).toContain('packages/ffb-mui/src/index.ts');
+    expect(expanded).toContain('packages/ffb-mui/src/fields/index.ts');
+  });
+
+  it('uses package-like names as indexed path search terms', async () => {
+    const { extractIndexedSearchTerms } = await import('../src/core/context/fuzzyFileMatch');
+    expect(extractIndexedSearchTerms('add docs for all ffb-mui features')).toContain('ffb-mui');
   });
 });
 
@@ -1399,6 +1478,67 @@ describe('SessionLogService timing', () => {
       expect(raw).toContain('src/a.ts');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('workspace scaffolding', () => {
+  it('creates default .mitii/mcp.json and README on first init', async () => {
+    const { mkdtempSync, existsSync, readFileSync, rmSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+    const { scaffoldMitiiWorkspace } = await import('../src/core/mcp/scaffoldMitiiWorkspace');
+
+    const dir = mkdtempSync(join(tmpdir(), 'thunder-scaffold-'));
+    try {
+      scaffoldMitiiWorkspace(dir);
+      const mcpPath = join(dir, '.mitii', 'mcp.json');
+      const readmePath = join(dir, '.mitii', 'README.md');
+      expect(existsSync(mcpPath)).toBe(true);
+      expect(existsSync(readmePath)).toBe(true);
+      const mcp = JSON.parse(readFileSync(mcpPath, 'utf-8')) as { mcpServers: Record<string, unknown> };
+      expect(mcp.mcpServers).toEqual({});
+      expect(readFileSync(readmePath, 'utf-8')).toContain('filesystem');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not overwrite existing mcp.json', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+    const { scaffoldMitiiWorkspace } = await import('../src/core/mcp/scaffoldMitiiWorkspace');
+
+    const dir = mkdtempSync(join(tmpdir(), 'thunder-scaffold-'));
+    try {
+      mkdirSync(join(dir, '.mitii'), { recursive: true });
+      writeFileSync(join(dir, '.mitii', 'mcp.json'), '{"mcpServers":{"custom":{}}}\n');
+      scaffoldMitiiWorkspace(dir);
+      expect(readFileSync(join(dir, '.mitii', 'mcp.json'), 'utf-8')).toContain('custom');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('run_command exit codes', () => {
+  it('treats rg exit 1 as success but not npm test failures', async () => {
+    const { mkdtempSync, rmSync } = await import('fs');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+    const { createRunCommandTool } = await import('../src/core/tools/builtinTools');
+
+    const dir = mkdtempSync(join(tmpdir(), 'thunder-cmd-'));
+    try {
+      const tool = createRunCommandTool(dir, () => 'act');
+      const grep = await tool.execute({ command: 'grep -r "__definitely_missing_pattern_xyz__" .' });
+      expect(grep.success).toBe(true);
+
+      const npm = await tool.execute({ command: 'npm test' });
+      expect(npm.success).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

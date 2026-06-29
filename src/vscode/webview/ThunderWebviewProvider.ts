@@ -52,10 +52,14 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         if ('agentLiveStatus' in partial) {
           this.postMessage({ type: 'setAgentLiveStatus', payload: partial.agentLiveStatus ?? null });
         }
-        if (partial.contextPreview) {
+        if (partial.contextPreview || partial.contextBudget) {
           this.postMessage({
             type: 'setContextPreview',
-            payload: { items: partial.contextPreview, totalTokens: partial.contextTokenEstimate ?? 0 },
+            payload: {
+              items: partial.contextPreview ?? this.state.contextPreview,
+              totalTokens: partial.contextTokenEstimate ?? this.state.contextTokenEstimate,
+              budget: partial.contextBudget ?? this.state.contextBudget,
+            },
           });
         }
         if (partial.approvals) {
@@ -109,8 +113,11 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private setTab(tab: WebviewState['tab']): void {
-    this.state = { ...this.state, tab };
-    this.postMessage({ type: 'setTab', payload: tab });
+    if (tab === 'history') {
+      this.archiveCurrentThread();
+    }
+    this.state = { ...this.state, tab, chatHistory: this.historySummaries() };
+    this.postMessage({ type: 'state', payload: this.state });
   }
 
   private postMessage(message: ExtensionToWebviewMessage): void {
@@ -118,7 +125,10 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   private async syncState(): Promise<void> {
-    this.state = await this.controller.buildUiState(this.state);
+    this.state = await this.controller.buildUiState({
+      ...this.state,
+      chatHistory: this.historySummaries(),
+    });
     this.postMessage({ type: 'state', payload: this.state });
   }
 
@@ -170,7 +180,15 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
       case 'openChatThread': {
         this.archiveCurrentThread();
         const thread = this.archivedThreads.get(message.payload.id);
-        if (!thread) break;
+        if (!thread) {
+          this.state = {
+            ...this.state,
+            error: 'That conversation could not be found. It may have been cleared.',
+            chatHistory: this.historySummaries(),
+          };
+          this.postMessage({ type: 'state', payload: this.state });
+          break;
+        }
         this.state = {
           ...this.state,
           tab: 'chat',
@@ -191,10 +209,18 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
-      case 'setTab':
-        this.state = { ...this.state, tab: message.payload };
-        this.postMessage({ type: 'setTab', payload: message.payload });
+      case 'setTab': {
+        if (message.payload === 'history') {
+          this.archiveCurrentThread();
+        }
+        this.state = {
+          ...this.state,
+          tab: message.payload,
+          chatHistory: this.historySummaries(),
+        };
+        this.postMessage({ type: 'state', payload: this.state });
         break;
+      }
 
       case 'stopGeneration':
         this.controller.stopGeneration();

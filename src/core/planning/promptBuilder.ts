@@ -10,11 +10,12 @@ const TOOL_GUIDANCE = `
 TOOLS: You have tools to read files, search code, run commands, write files, and manage memory.
 - Use read_file/read_files/search/search_batch/list_files to gather information before editing.
 - Tools named mcp__server__tool come from configured MCP servers. Treat them as external tools; inspect their names and arguments carefully.
-- Batch independent reads and searches in ONE turn (read_files, search_batch).
+- Batch independent reads and searches in ONE turn (read_files, search_batch). read_files has a hard max of 12 paths per call; prefer 8-10 and split larger batches.
 - For audit/cleanup: use execute_workspace_script (audit-dependencies.mjs, audit-dead-code.sh) — NEVER spawn_research_agent for unused deps/imports/files.
 - For unused exports/dead code: trust automated AST tools only (knip via audit-dead-code.sh, or npx knip / npx ts-prune). Do NOT manually grep for unused exports as the source of truth.
 - Prefer execute_workspace_script for known repo scripts (knip, depcheck, safe lint, checkpoint read/write). Search with search_script_catalog first if needed.
 - Prefer apply_patch for targeted logical blocks; use write_file for new files or full rewrites.
+- Before writing several new nested docs/files, decide the directory naming convention first and keep it consistent.
 - Never put shell commands such as git checkout, npm install, yarn build, or rm into write_file content. Use run_command for commands and write_file/apply_patch only for actual file contents.
 - Safe patching: in TSX/JSX, never replace isolated single lines inside a component. Patch the whole import block, whole object, whole hook block, or whole component/function block. Before patching, mentally verify brackets {}, parens (), tags <>, and required adjacent React props stay balanced.
 - Use run_command only for read-only inspection or project verification. During audit/cleanup tasks, use execute_workspace_script instead of hand-written shell.
@@ -48,6 +49,14 @@ READ-ONLY PLANNING DISCOVERY TOOLS:
 - For unused exports/dead code: use knip/ts-prune through audit-dead-code.sh or read-only npx commands; do NOT manually grep.
 - Use run_command only for read-only inspection commands such as rg, find, git status, npx depcheck, npx knip, lint/test/typecheck checks.
 - Do NOT call write_file, apply_patch, memory_write, or save_task_state during planning discovery.`;
+
+const DOCS_TASK_GUIDANCE = `
+DOCUMENTATION TASKS:
+- First inspect docs app routing/config (for Docusaurus: docusaurus.config.ts, sidebars*.ts, navbar/docs plugin entries) and existing docs folder conventions.
+- Then inspect the package/source exports and feature directories that the docs must cover.
+- New docs must be reachable from the docs UI: update the docs plugin instance, routeBasePath, sidebarPath, sidebar file, and navbar item when the target docs tree is new.
+- Decide one URL/directory naming convention before writing pages; do not mix component names such as text/text-input or radio/radio-button.
+- Verify with the docs build or the closest available docs validation command.`;
 
 export function buildSystemPrompt(
   mode: ThunderMode,
@@ -108,6 +117,7 @@ For multi-step tasks in Plan mode, include:
 
 ${modeInstructions[mode]}
 ${toolsEnabled ? TOOL_GUIDANCE : ''}
+${toolsEnabled ? DOCS_TASK_GUIDANCE : ''}
 ${toolsEnabled && auditMode ? AUDIT_GUIDANCE : ''}
 ${toolsEnabled && isContinuation ? '\nCONTINUATION TURN: Resume the existing state machine. Read Task progress, approved tool outputs, and recent conversation first. Continue from the pending EXECUTE/VERIFY step. Do NOT re-run audit-dependencies, audit-dead-code, list_files, or memory_search before using the approval context.' : ''}
 ${mode === 'plan' ? planFormat : ''}
@@ -221,7 +231,8 @@ Process:
 4. Include a final verification phase if tests or lint are relevant.
 5. Be specific with file paths from context and tool-assisted discovery.
 6. Every step must include objective, tools, successCriteria, files, and risk.
-7. ${stepGuidance}${auditGuidance}
+7. ${stepGuidance}
+8. For documentation tasks, include explicit discovery for docs routing/config and a verification step that proves the pages are served.${auditGuidance}
 
 Output ONLY a JSON code block with a phases JSON array. Do not output prose:
 \`\`\`json
@@ -312,7 +323,7 @@ Output a strict JSON DAG plan with dependsOn edges. Each step must declare:
 - dependsOn: array of step ids that must complete first (empty for root steps)
 - optional tool + args for script-driven steps
 
-${isAudit ? 'Audit tasks need 8+ granular steps across diagnostics/review/execute/verify phases. Diagnostics must run knip or ts-prune for unused exports.' : 'Use 2-8 steps based on complexity.'}
+${isAudit ? 'Audit tasks need 8+ granular steps across diagnostics/review/execute/verify phases. Diagnostics must run knip or ts-prune for unused exports.' : 'Use 2-8 steps based on complexity. Documentation tasks must include docs routing/sidebar/navbar discovery before writing pages, and docs build verification.'}
 
 Output ONLY a JSON code block:
 \`\`\`json
@@ -365,7 +376,8 @@ export function buildPlanningDiscoveryPrompt(
       role: 'system',
       content: `You are doing read-only discovery before a plan is generated.
 
-${PLANNING_DISCOVERY_GUIDANCE}${auditGuidance}
+${PLANNING_DISCOVERY_GUIDANCE}
+${DOCS_TASK_GUIDANCE}${auditGuidance}
 
 Rules:
 - You are in ${mode.toUpperCase()} mode discovery. Do NOT write files, patch files, or edit package manifests.
