@@ -2,7 +2,7 @@
  * Product branding — display name, domain, and community links.
  *
  * Keep in sync with mitii-docs/brand.ts and mitii-website/brand.ts.
- * Internal extension IDs (`thunder.*`, `.thunder/`) are unchanged until a full rename.
+ * Internal extension command IDs still use `thunder.*` for VS Code compatibility.
  */
 export const AGENT_NAME = 'Mitii';
 export const AGENT_FULL_NAME = 'Mitii AI Agent';

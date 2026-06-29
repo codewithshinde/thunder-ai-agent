@@ -3,7 +3,7 @@ import { join, relative } from 'path';
 import type { ThunderDb } from '../indexing/ThunderDb';
 import type { ContextPathSuggestion } from '../../vscode/webview/messages';
 
-const SKIP_DIRS = new Set(['node_modules', '.git', '.thunder', 'dist', 'build', 'out']);
+const SKIP_DIRS = new Set(['node_modules', '.git', '.mitii', '.thunder', 'dist', 'build', 'out']);
 
 export function searchWorkspacePaths(
   workspace: string,

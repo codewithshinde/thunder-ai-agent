@@ -22,9 +22,9 @@ export function ContextDebuggerPanel({
   const pct = Math.min(100, Math.round((used / limit) * 100));
 
   return (
-    <section className="context-debugger" aria-label="Context debugger">
+    <section className="context-debugger" aria-label="Retrieved context debugger">
       <button type="button" className="context-debugger__toggle" onClick={onToggle}>
-        <span>Context budget</span>
+        <span>Retrieved context</span>
         <span className="context-debugger__meta">
           {used.toLocaleString()} / {limit.toLocaleString()} tokens ({pct}%)
         </span>
@@ -50,7 +50,7 @@ export function ContextDebuggerPanel({
 
           {budget && budget.sourceBreakdown.length > 0 && (
             <div className="context-debugger__section">
-              <h4>Per-source tokens</h4>
+              <h4>Retrieved source tokens</h4>
               <ul className="context-debugger__list">
                 {budget.sourceBreakdown.map((row) => (
                   <li key={row.source}>
@@ -64,7 +64,7 @@ export function ContextDebuggerPanel({
 
           {items.length > 0 && (
             <div className="context-debugger__section">
-              <h4>Included</h4>
+              <h4>Included snippets</h4>
               <ul className="context-debugger__list">
                 {items.slice(0, 12).map((item) => (
                   <li key={item.id}>

@@ -220,7 +220,7 @@ Include:
 - OS
 - Provider config (model name and base URL — no API keys)
 - Steps to reproduce
-- Relevant session log from `.thunder/logs/` if you have one (`Mitii: Export Session Log`)
+- Relevant session log from `.mitii/logs/` if you have one (`Mitii: Export Session Log`)
 
 ---
 

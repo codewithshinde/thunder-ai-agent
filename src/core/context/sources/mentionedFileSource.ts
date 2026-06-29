@@ -82,7 +82,7 @@ async function findMatchingFiles(
   searchedPatterns: string[]
 ): Promise<string[]> {
   const patterns = globPatternsForMention(mention);
-  const exclude = '**/{node_modules,.git,dist,out,build,.thunder}/**';
+  const exclude = '**/{node_modules,.git,dist,out,build,.mitii,.thunder}/**';
   const uris: vscode.Uri[] = [];
 
   if (!canUseVscodeFindFiles(workspace)) {
@@ -159,7 +159,7 @@ function walkFindOnDisk(workspace: string, needle: string, limit: number): strin
     }
 
     for (const entry of entries) {
-      if (['node_modules', '.git', '.thunder', 'dist', 'build', 'out'].includes(entry)) continue;
+      if (['node_modules', '.git', '.mitii', '.thunder', 'dist', 'build', 'out'].includes(entry)) continue;
       const abs = join(dir, entry);
       let rel: string;
       try {

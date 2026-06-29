@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.6.7",
+  "version": "2.6.9",
   "publisher": "mitii",
   "icon": "media/mitii-icon.png",
   "license": "AGPL-3.0-or-later",
@@ -104,7 +104,7 @@
         "thunder.telemetry.sessionLogging": {
           "type": "boolean",
           "default": true,
-          "description": "Write structured JSONL session logs to .thunder/logs/ for debugging and analysis."
+          "description": "Write structured JSONL session logs to .mitii/logs/ for debugging and analysis."
         },
         "thunder.telemetry.debugMetrics": {
           "type": "boolean",

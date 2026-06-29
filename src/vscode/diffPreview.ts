@@ -8,7 +8,7 @@ export async function showWriteDiffPreview(
   newContent: string
 ): Promise<void> {
   const originalPath = join(workspace, relPath);
-  const previewDir = join(workspace, '.thunder', 'diff-preview');
+  const previewDir = join(workspace, '.mitii', 'diff-preview');
   mkdirSync(previewDir, { recursive: true });
   const previewPath = join(previewDir, relPath.replace(/\//g, '__'));
   mkdirSync(dirname(previewPath), { recursive: true });
@@ -31,7 +31,7 @@ export async function showPatchDiffPreview(
   oldText: string,
   newText: string
 ): Promise<void> {
-  const previewDir = join(workspace, '.thunder', 'diff-preview');
+  const previewDir = join(workspace, '.mitii', 'diff-preview');
   mkdirSync(previewDir, { recursive: true });
   const oldPath = join(previewDir, `old__${relPath.replace(/\//g, '__')}`);
   const newPath = join(previewDir, `new__${relPath.replace(/\//g, '__')}`);

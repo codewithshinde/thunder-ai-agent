@@ -76,7 +76,7 @@
     "name": "write-checkpoint.sh",
     "category": "git-state-safety",
     "command": "bash scripts/write-checkpoint.sh",
-    "description": "Write the current plan, findings, and git status to .thunder-state.json before approval pauses.",
+    "description": "Write the current plan, findings, and git status to .mitii-state.json before approval pauses.",
     "keywords": ["checkpoint", "approval", "state", "plan", "findings", "memory", "amnesia"],
     "readOnly": false
   },
@@ -85,7 +85,7 @@
     "name": "read-checkpoint.sh",
     "category": "git-state-safety",
     "command": "bash scripts/read-checkpoint.sh",
-    "description": "Read .thunder-state.json after approval so the agent can resume with the saved plan and findings.",
+    "description": "Read .mitii-state.json after approval so the agent can resume with the saved plan and findings.",
     "keywords": ["checkpoint", "resume", "approval", "state", "plan", "findings", "memory"],
     "readOnly": true
   },

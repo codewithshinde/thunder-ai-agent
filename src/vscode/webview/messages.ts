@@ -199,6 +199,9 @@ export interface SettingsView {
   mcpTools: number;
   mcpServerStatuses: McpServerStatusView[];
   projectRules: number;
+  sessionLogging: boolean;
+  debugMetrics: boolean;
+  localDebugAvailable: boolean;
 }
 
 export type ApprovalMode = 'review_all' | 'ask_edits' | 'ask_deletes' | 'ask_commands' | 'auto';
@@ -229,6 +232,11 @@ export interface McpSettingsPayload {
   enabled: boolean;
 }
 
+export interface TelemetrySettingsPayload {
+  sessionLogging: boolean;
+  debugMetrics: boolean;
+}
+
 export interface McpServerStatusView {
   name: string;
   connected: boolean;
@@ -242,6 +250,7 @@ export interface ThunderSettingsPayload {
   agent: AgentSettingsPayload;
   safety: SafetySettingsPayload;
   mcp: McpSettingsPayload;
+  telemetry: TelemetrySettingsPayload;
 }
 
 export interface ContextToggles {
@@ -382,6 +391,9 @@ export const defaultSettingsView = (): SettingsView => ({
   mcpTools: 0,
   mcpServerStatuses: [],
   projectRules: 0,
+  sessionLogging: true,
+  debugMetrics: false,
+  localDebugAvailable: false,
 });
 
 export const initialWebviewState = (): WebviewState => ({

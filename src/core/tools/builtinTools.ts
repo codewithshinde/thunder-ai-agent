@@ -376,7 +376,7 @@ export function createUseSkillTool(skillCatalog: SkillCatalogService): Tool<{ na
   return {
     name: 'use_skill',
     description:
-      'Load a workspace skill playbook from .thunder/skills. Use when a named playbook or specialized workflow applies.',
+      'Load a workspace skill playbook from .mitii/skills. Use when a named playbook or specialized workflow applies.',
     risk: 'low',
     inputSchema: z.object({ name: z.string() }),
     async execute(input): Promise<ToolResult> {

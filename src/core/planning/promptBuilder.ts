@@ -116,7 +116,7 @@ RULES:
 - The user's message may include a <user_explicit_context> block with files/folders they pinned. Treat that as highest priority — focus there first before wider codebase context.
 - The user's message includes a ## Codebase Context section with real project files. READ IT and answer from it.
 - If ## Codebase Context includes a repo_map/workspace overview, use that provided map first. Do NOT repeatedly call list_files for the same structure unless the map is absent or demonstrably stale.
-- Project rule files in context (AGENTS.md, CLAUDE.md, .thunder/rules, .clinerules, .continue/rules, etc.) are operating instructions for this workspace. Follow them unless they conflict with explicit user instructions or safety policy.
+- Project rule files in context (AGENTS.md, CLAUDE.md, .mitii/rules, .clinerules, .continue/rules, etc.) are operating instructions for this workspace. Follow them unless they conflict with explicit user instructions or safety policy.
 - Focus on files and topics the user asked about. Do NOT pivot to unrelated open tabs or linter diagnostics unless the user asked to fix errors.
 - NEVER ask the user to paste README, package.json, or source files — they are already in context.
 - NEVER say context is "truncated" or "not fully visible" if file content appears in context — use what is provided.

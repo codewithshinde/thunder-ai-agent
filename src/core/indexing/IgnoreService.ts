@@ -8,6 +8,7 @@ const log = createLogger('IgnoreService');
 const DEFAULT_IGNORES = [
   'node_modules/',
   '.git/',
+  '.mitii/',
   '.thunder/',
   'dist/',
   'build/',
@@ -44,13 +45,13 @@ export class IgnoreService {
     }
 
     if (options?.respectThunderignore !== false) {
-      const thunderignorePath = join(workspacePath, '.thunderignore');
-      if (existsSync(thunderignorePath)) {
+      const ignorePath = join(workspacePath, '.mitiiignore');
+      if (existsSync(ignorePath)) {
         try {
-          const content = readFileSync(thunderignorePath, 'utf-8');
+          const content = readFileSync(ignorePath, 'utf-8');
           this.ig.add(content);
         } catch {
-          log.warn('Failed to read .thunderignore');
+          log.warn('Failed to read Mitii ignore file');
         }
       }
     }

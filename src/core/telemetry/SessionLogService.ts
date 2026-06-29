@@ -33,6 +33,7 @@ export type SessionLogEventType =
 
 export interface SessionLogEvent {
   ts: number;
+  time: string;
   sessionId: string;
   type: SessionLogEventType;
   /** Human-readable summary for quick scanning */
@@ -42,7 +43,7 @@ export interface SessionLogEvent {
 
 /**
  * Append-only JSONL session log for debugging and post-hoc analysis.
- * Files: `<workspace>/.thunder/logs/<sessionId>.jsonl`
+ * Files: `<workspace>/.mitii/logs/<local-time>-<sessionId>.jsonl`
  */
 export class SessionLogService {
   private enabled = true;
@@ -50,19 +51,27 @@ export class SessionLogService {
   private workspace = '';
   private sessionId = '';
   private logPath = '';
+  private logStartedAt = 0;
 
   configure(workspace: string, sessionId: string, enabled = true, debugMetrics = false): void {
+    const sessionChanged = this.sessionId !== sessionId;
     this.workspace = workspace;
     this.sessionId = sessionId;
     this.enabled = enabled && Boolean(workspace);
     this.debugMetrics = debugMetrics;
     if (!this.enabled) return;
+    if (sessionChanged || !this.logStartedAt) {
+      this.logStartedAt = Date.now();
+      this.logPath = '';
+    }
 
-    const dir = join(workspace, '.thunder', 'logs');
+    const dir = join(workspace, '.mitii', 'logs');
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    this.logPath = join(dir, `${sessionId}.jsonl`);
+    if (!this.logPath) {
+      this.logPath = join(dir, `${formatTimestampForFile(this.logStartedAt)}-${sessionId}.jsonl`);
+    }
   }
 
   isEnabled(): boolean {
@@ -105,8 +114,10 @@ export class SessionLogService {
   }
 
   private writeEvent(type: SessionLogEventType, message: string, data?: Record<string, unknown>): void {
+    const ts = Date.now();
     const event: SessionLogEvent = {
-      ts: Date.now(),
+      ts,
+      time: formatTimestampForLog(ts),
       sessionId: this.sessionId,
       type,
       message,
@@ -130,16 +141,25 @@ export class SessionLogService {
     }
 
     const header = {
-      _format: 'thunder-session-log',
+      _format: 'mitii-session-log',
       version: 1,
       sessionId: this.sessionId,
       workspace: this.workspace,
-      startedAt: Date.now(),
+      startedAt: this.logStartedAt || Date.now(),
+      startedAtLocal: formatTimestampForLog(this.logStartedAt || Date.now()),
       ...meta,
     };
 
     try {
-      writeFileSync(this.logPath, `${JSON.stringify({ ts: Date.now(), sessionId: this.sessionId, type: 'session_start', message: 'Session started', data: header })}\n`, 'utf-8');
+      const ts = Date.now();
+      writeFileSync(this.logPath, `${JSON.stringify({
+        ts,
+        time: formatTimestampForLog(ts),
+        sessionId: this.sessionId,
+        type: 'session_start',
+        message: 'Session started',
+        data: header,
+      })}\n`, 'utf-8');
     } catch (error) {
       log.warn('Failed to write session log header', {
         error: error instanceof Error ? error.message : String(error),
@@ -202,12 +222,38 @@ export class SessionLogService {
       .join('\n');
 
     const totalTimedMs = timings.reduce((sum, t) => sum + t.durationMs, 0);
+    const toolLines = lines
+      .map((line) => {
+        try {
+          const event = JSON.parse(line) as SessionLogEvent;
+          if (event.type !== 'tool_end') return undefined;
+          const data = event.data ?? {};
+          const name = String(data.toolName ?? data.tool ?? event.message);
+          const id = typeof data.toolCallId === 'string' ? `#${data.toolCallId}` : '';
+          const locator = typeof data.path === 'string'
+            ? ` path=${data.path}`
+            : typeof data.command === 'string'
+              ? ` command=${data.command}`
+              : '';
+          const status = data.success === false ? 'failed' : 'ok';
+          const duration = typeof data.durationMs === 'number' ? `${data.durationMs}ms` : 'n/a';
+          const preview = typeof data.outputPreview === 'string' && data.outputPreview
+            ? ` — ${data.outputPreview.replace(/\s+/g, ' ').slice(0, 120)}`
+            : '';
+          return `  ${name}${id}${locator}: ${status}, ${duration}${preview}`;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((line): line is string => Boolean(line));
 
     return [
       `# ${AGENT_NAME} session log summary`,
       `session: ${this.sessionId}`,
       `workspace: ${this.workspace}`,
       `log file: ${this.logPath}`,
+      `started: ${firstTs ? formatTimestampForLog(firstTs) : '(unknown)'}`,
+      `ended: ${lastTs ? formatTimestampForLog(lastTs) : '(unknown)'}`,
       `duration: ${durationSec}s`,
       `events: ${lines.length}`,
       '',
@@ -218,12 +264,39 @@ export class SessionLogService {
         ? `## Process timing (${Math.round(totalTimedMs / 100) / 10}s tracked)\n${timingLines}`
         : '## Process timing\n  (none — enable session logging and retry)',
       '',
+      toolLines.length > 0
+        ? `## Tool calls (${toolLines.length})\n${toolLines.join('\n')}`
+        : '## Tool calls\n  (none)',
+      '',
       errors.length > 0 ? `## Errors (${errors.length})\n${errors.map((e) => `- ${e}`).join('\n')}` : '## Errors\n  (none)',
       '',
       '## Full log',
       'Attach the .jsonl file or paste its contents for analysis.',
     ].join('\n');
   }
+}
+
+function formatTimestampForFile(ts: number): string {
+  const d = new Date(ts);
+  return [
+    d.getFullYear(),
+    pad2(d.getMonth() + 1),
+    pad2(d.getDate()),
+  ].join('-') + '_' + [
+    pad2(d.getHours()),
+    pad2(d.getMinutes()),
+    pad2(d.getSeconds()),
+  ].join('-');
+}
+
+function formatTimestampForLog(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
 }
 
 function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -237,8 +310,32 @@ function sanitizeLogData(data?: Record<string, unknown>): Record<string, unknown
     }
     if (typeof value === 'string' && value.length > 8000) {
       out[key] = `${value.slice(0, 8000)}… [truncated ${value.length - 8000} chars]`;
+    } else if (Array.isArray(value)) {
+      out[key] = value.map((item) => sanitizeValue(item));
+    } else if (value && typeof value === 'object') {
+      out[key] = sanitizeValue(value);
     } else {
       out[key] = value;
+    }
+  }
+  return out;
+}
+
+function sanitizeValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(item));
+  }
+  if (!value || typeof value !== 'object') {
+    return typeof value === 'string' && value.length > 8000
+      ? `${value.slice(0, 8000)}… [truncated ${value.length - 8000} chars]`
+      : value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+    if (shouldRedactKey(key)) {
+      out[key] = typeof nestedValue === 'string' ? '[REDACTED]' : nestedValue;
+    } else {
+      out[key] = sanitizeValue(nestedValue);
     }
   }
   return out;

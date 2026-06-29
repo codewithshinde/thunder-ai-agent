@@ -2,11 +2,11 @@ import { mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
 export function resolveThunderDir(workspacePath: string): string {
-  return join(workspacePath, '.thunder');
+  return join(workspacePath, '.mitii');
 }
 
 export function resolveDbPath(workspacePath: string): string {
-  return join(resolveThunderDir(workspacePath), 'thunder.sqlite');
+  return join(resolveThunderDir(workspacePath), 'mitii.sqlite');
 }
 
 export function ensureThunderDir(workspacePath: string): string {

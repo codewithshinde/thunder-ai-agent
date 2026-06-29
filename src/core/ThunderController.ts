@@ -79,6 +79,7 @@ import type {
   PinnedContextView,
   ContextPathSuggestion,
   TokenUsageView,
+  TokenUsageBreakdownItem,
 } from '../vscode/webview/messages';
 import {
   initialWebviewState,
@@ -165,6 +166,7 @@ export class ThunderController {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.configService = new ConfigService(context);
     this.providerRegistry = new LlmProviderRegistry();
+    this.toolRuntime.setSessionLog(this.sessionLog);
     this.debouncedRebuildRetriever = debounce(() => this.rebuildRetriever(), 400);
   }
 
@@ -468,7 +470,8 @@ export class ThunderController {
           agentActivity: this.agentActivity,
         });
       },
-      () => this.agentTaskState
+      () => this.agentTaskState,
+      this.sessionLog
     );
 
     const retriever = this.buildRetriever(db, workspace);
@@ -585,17 +588,20 @@ export class ThunderController {
     });
     orchestrator.setTokenUsageCallback((promptTokens, contextTokens, responseText, breakdown, options) => {
       const responseTokens = Math.ceil(responseText.length / 4);
-      this.tokenUsage.lastPromptTokens = promptTokens;
+      const effectivePromptTokens = Math.max(promptTokens, this.tokenUsage.lastCallInputTokens);
+      const effectiveBreakdown = normalizePromptBreakdown(breakdown, effectivePromptTokens);
+      this.tokenUsage.lastPromptTokens = effectivePromptTokens;
       this.tokenUsage.lastContextTokens = contextTokens;
       this.tokenUsage.lastResponseTokens = responseTokens;
       if (options?.final !== false) {
         this.tokenUsage.turnCount += 1;
       }
-      this.tokenUsage.breakdown = breakdown;
+      this.tokenUsage.breakdown = effectiveBreakdown;
       const config = this.configService.getConfig();
       if (options?.final !== false) {
         this.sessionLog.append('token_usage', 'Session token rollup', {
-          turnPromptTokens: promptTokens,
+          turnPromptTokens: effectivePromptTokens,
+          estimatedPromptTokens: promptTokens,
           turnContextTokens: contextTokens,
           turnResponseTokens: responseTokens,
           turnAiCallCount: this.tokenUsage.currentTurnAiCallCount,
@@ -713,17 +719,19 @@ export class ThunderController {
       watcher.onDidCreate(enqueue);
       this.context.subscriptions.push(watcher);
 
-      const skillWatcher = vscode.workspace.createFileSystemWatcher(
-        createWorkspacePattern(workspace, '.thunder/skills/**/SKILL.md')
-      );
       const refreshSkills = () => {
         this.skillCatalogService?.refresh();
         this.pushActivity('info', 'Workspace skills catalog refreshed');
       };
-      skillWatcher.onDidChange(refreshSkills);
-      skillWatcher.onDidCreate(refreshSkills);
-      skillWatcher.onDidDelete(refreshSkills);
-      this.context.subscriptions.push(skillWatcher);
+      for (const skillPattern of ['.mitii/skills/**/SKILL.md']) {
+        const skillWatcher = vscode.workspace.createFileSystemWatcher(
+          createWorkspacePattern(workspace, skillPattern)
+        );
+        skillWatcher.onDidChange(refreshSkills);
+        skillWatcher.onDidCreate(refreshSkills);
+        skillWatcher.onDidDelete(refreshSkills);
+        this.context.subscriptions.push(skillWatcher);
+      }
     } catch (error) {
       log.warn('File watcher setup failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -827,6 +835,9 @@ export class ThunderController {
           error: s.error,
         })),
         projectRules: this.projectRulesService?.count() ?? 0,
+        sessionLogging: config.telemetry.sessionLogging,
+        debugMetrics: config.telemetry.debugMetrics,
+        localDebugAvailable: this.context.extensionMode === vscode.ExtensionMode.Development,
       },
       contextToggles: this.contextToggles,
       providerLabel: `${config.provider.type} / ${config.provider.model}`,
@@ -1045,6 +1056,8 @@ export class ThunderController {
     this.tokenUsage.lastCallInputTokens = usage.inputTokens;
     this.tokenUsage.lastCallOutputTokens = usage.outputTokens;
     this.tokenUsage.lastCallTotalTokens = usage.totalTokens;
+    this.tokenUsage.lastPromptTokens = Math.max(this.tokenUsage.lastPromptTokens, usage.inputTokens);
+    this.tokenUsage.breakdown = normalizePromptBreakdown(this.tokenUsage.breakdown, this.tokenUsage.lastPromptTokens);
     this.tokenUsage.estimated = usage.estimated;
 
     this.sessionLog.append('token_usage', 'AI call token usage', {
@@ -1762,11 +1775,18 @@ export class ThunderController {
       },
       safety: settings.safety,
       mcp: settings.mcp,
+      telemetry: {
+        sessionLogging: settings.telemetry.sessionLogging,
+        debugMetrics: settings.telemetry.debugMetrics,
+      },
     };
 
     await this.configService.updateAllSettings(normalized);
 
     const config = this.configService.getConfig();
+    if (this.session) {
+      this.configureSessionLogging(this.session, this.resolveWorkspacePath() ?? '');
+    }
     const apiKey = await this.configService.getApiKey();
     await this.providerRegistry.resolveFromConfig(config.provider, apiKey);
     await this.refreshResearchAgentProvider();
@@ -1953,4 +1973,26 @@ function toApprovalView(r: import('./safety/ApprovalQueue').ApprovalRequest): Ap
     question: r.question,
     options: r.options,
   };
+}
+
+function normalizePromptBreakdown(
+  breakdown: TokenUsageBreakdownItem[],
+  promptTokens: number
+): TokenUsageBreakdownItem[] {
+  if (promptTokens <= 0) return breakdown;
+
+  const overheadLabel = 'Agent transcript + request overhead';
+  const base = breakdown.filter((item) => item.label !== overheadLabel);
+  const visibleTotal = base.reduce((sum, item) => sum + item.tokens, 0);
+  const residual = promptTokens - visibleTotal;
+  if (residual <= 0) return base;
+
+  return [
+    ...base,
+    {
+      label: overheadLabel,
+      tokens: residual,
+      color: '#38bdf8',
+    },
+  ];
 }

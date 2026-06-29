@@ -14,7 +14,10 @@ export interface TaskAnalysis {
 }
 
 const ACTION_VERBS =
-  /\b(implement|build|create|add|fix|refactor|migrate|rewrite|update|remove|delete|integrate|wire|connect|setup|configure|optimize|improve|imporve|enhance|polish|redesign|debug|test)\b/i;
+  /\b(implement|build|create|add|fix|refactor|migrate|rewrite|update|remove|delete|integrate|wire|connect|setup|configure|optimize|improve|imporve|enhance|polish|redesign|debug|test|change|replace)\b/i;
+
+const IMPLEMENTATION_HINTS =
+  /\b(need|change|replace|ui|ux|landing page|animated|animation|enterprise|implement|create|fix)\b/i;
 
 const UI_POLISH_SCOPE =
   /\b(ui|ux|layout|component|components|card|cards|child components?|screen|view|style|styles|visual|visuals|interaction|interactions)\b/i;
@@ -144,11 +147,17 @@ function classifyTask(text: string): TaskAnalysis {
   const fileMentions = (text.match(/[`'"]?[\w./-]+\.(tsx?|jsx?|py|go|rs|json|md|css|scss|yaml|yml)[`'"]?/gi) ?? []).length;
   const complexity = estimateComplexity(text);
 
-  const isUiPolishTask = ACTION_VERBS.test(text) && UI_POLISH_SCOPE.test(text);
+  const hasImplementationHint = IMPLEMENTATION_HINTS.test(text);
+  const isUiPolishTask = (ACTION_VERBS.test(text) || hasImplementationHint) && UI_POLISH_SCOPE.test(text);
 
   const isImplementation =
-    actionCount >= 1 &&
-    (connectorCount >= 1 || fileMentions >= 2 || text.length > 140 || complexity !== 'low' || isUiPolishTask);
+    isUiPolishTask ||
+    (actionCount >= 1 &&
+      (hasImplementationHint ||
+        connectorCount >= 1 ||
+        fileMentions >= 2 ||
+        text.length > 140 ||
+        complexity !== 'low'));
 
   if (isImplementation) {
     return {

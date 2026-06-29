@@ -14,7 +14,7 @@ import { SettingsCard } from './SettingsCard';
 import { SettingSwitch } from './SettingSwitch';
 import { SettingStepper } from './SettingStepper';
 
-type SettingsTab = 'workspace' | 'model' | 'agent' | 'context' | 'integrations' | 'safety';
+type SettingsTab = 'workspace' | 'model' | 'agent' | 'context' | 'integrations' | 'safety' | 'debug';
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'workspace', label: 'Workspace' },
@@ -23,6 +23,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'context', label: 'Context' },
   { id: 'integrations', label: 'Integrations' },
   { id: 'safety', label: 'Safety' },
+  { id: 'debug', label: 'Debug' },
 ];
 
 const CONTEXT_TOGGLES: Array<{
@@ -121,6 +122,8 @@ export function SettingsPanel({
 
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>(settings.approvalMode);
   const [mcpEnabled, setMcpEnabled] = useState(settings.mcpEnabled);
+  const [sessionLogging, setSessionLogging] = useState(settings.sessionLogging);
+  const [debugMetrics, setDebugMetrics] = useState(settings.debugMetrics);
 
   useEffect(() => {
     setProviderType(settings.providerType as 'echo' | 'openai-compatible');
@@ -135,6 +138,8 @@ export function SettingsPanel({
     setShowDiffPreview(settings.showDiffPreview);
     setApprovalMode(settings.approvalMode);
     setMcpEnabled(settings.mcpEnabled);
+    setSessionLogging(settings.sessionLogging);
+    setDebugMetrics(settings.debugMetrics);
     setDirty(false);
   }, [settings]);
 
@@ -161,6 +166,10 @@ export function SettingsPanel({
       },
       safety: deriveSafetySettings(approvalMode),
       mcp: { enabled: mcpEnabled },
+      telemetry: {
+        sessionLogging,
+        debugMetrics: settings.localDebugAvailable && sessionLogging ? debugMetrics : false,
+      },
     };
   };
 
@@ -186,6 +195,9 @@ export function SettingsPanel({
 
   const isLocalProvider = providerType === 'openai-compatible';
   const showSaveBar = activeTab !== 'workspace' && activeTab !== 'context';
+  const visibleTabs = settings.localDebugAvailable
+    ? TABS
+    : TABS.filter((tab) => tab.id !== 'debug');
 
   return (
     <div className="settings-shell">
@@ -199,7 +211,7 @@ export function SettingsPanel({
       </header>
 
       <nav className="settings-nav" aria-label="Settings sections">
-        {TABS.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -433,7 +445,7 @@ export function SettingsPanel({
             >
               <SettingSwitch
                 label="Enable MCP"
-                description="Load built-in servers plus thunder.mcp.servers, .thunder/mcp.json, and .mcp.json."
+                description="Load built-in servers plus thunder.mcp.servers, .mitii/mcp.json, and .mcp.json."
                 checked={mcpEnabled}
                 onChange={(v) => {
                   setMcpEnabled(v);
@@ -477,14 +489,14 @@ export function SettingsPanel({
                 <p className="settings-inline-note">
                   No MCP servers connected yet. Built-in servers start when a workspace folder is open.
                   Add more in VS Code settings under <code>thunder.mcp.servers</code> or{' '}
-                  <code>.thunder/mcp.json</code>.
+                  <code>.mitii/mcp.json</code>.
                 </p>
               )}
             </SettingsCard>
 
             <SettingsCard title="Project rules" description="Automatically loaded from your workspace.">
               <p className="settings-inline-note">
-                {AGENT_NAME} reads <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.thunder/rules</code>,{' '}
+                {AGENT_NAME} reads <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.mitii/rules</code>,{' '}
                 <code>.clinerules</code>, and Continue/Cursor rule folders into context.
               </p>
               <p className="settings-inline-note">
@@ -523,6 +535,40 @@ export function SettingsPanel({
               <span>{settings.requireApprovalShell ? 'Commands: ask' : 'Commands: auto'}</span>
             </div>
           </SettingsCard>
+        )}
+
+        {activeTab === 'debug' && settings.localDebugAvailable && (
+          <>
+            <SettingsCard
+              title="Local debug"
+              description="Development-only diagnostics for inspecting agent prompts, context, tool calls, and UI traces."
+            >
+              <SettingSwitch
+                label="JSONL session log"
+                description="Write canonical session events to .mitii/logs, including every tool start/end."
+                checked={sessionLogging}
+                onChange={(v) => {
+                  setSessionLogging(v);
+                  if (!v) setDebugMetrics(false);
+                  markDirty();
+                }}
+              />
+              <SettingSwitch
+                label="Verbose debug traces"
+                description="Include full sanitized inputs, context queries, LLM step metadata, and UI update traces."
+                checked={debugMetrics && sessionLogging}
+                disabled={!sessionLogging}
+                onChange={(v) => {
+                  setDebugMetrics(v);
+                  markDirty();
+                }}
+              />
+              <p className="settings-inline-note">
+                This panel only appears in the Extension Development Host. Logs are local files under{' '}
+                <code>.mitii/logs</code>.
+              </p>
+            </SettingsCard>
+          </>
         )}
       </div>
 

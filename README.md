@@ -35,8 +35,8 @@ Mitii sits in the middle: local execution, deep repo indexing, explicit Plan/Act
 | Edits without oversight | Approval queue for writes and shell; autonomy presets from `safe` through `enterprise`; dangerous commands blocked at the policy layer |
 | Plans that never get executed | Plan mode produces structured steps persisted to SQLite; Act mode runs the tool loop against that plan |
 | Context runs out mid-task | Conversation compaction, auto-continue rounds, task state saved between approval pauses |
-| No audit trail | JSONL session logs in `.thunder/logs/` — every tool call, approval, token usage, timing |
-| Locked into one vendor's rules | Loads `AGENTS.md`, `.cursor/rules`, `.clinerules`, Continue rules, and `.thunder/rules` into context automatically |
+| No audit trail | JSONL session logs in `.mitii/logs/` — every tool call, approval, token usage, timing |
+| Locked into one vendor's rules | Loads `AGENTS.md`, `.cursor/rules`, `.clinerules`, Continue rules, and `.mitii/rules` into context automatically |
 | Need external tools | Built-in MCP preload (filesystem, memory, sequential-thinking) plus workspace `mcp.json` and VS Code settings |
 
 ---
@@ -45,7 +45,7 @@ Mitii sits in the middle: local execution, deep repo indexing, explicit Plan/Act
 
 ### Context and indexing
 
-- **Workspace scanner** respects `.gitignore` and `.thunderignore`; auto-indexes on folder open
+- **Workspace scanner** respects `.gitignore` and `.mitiiignore`; auto-indexes on folder open
 - **FTS5 full-text search** with ripgrep fallback for unindexed paths
 - **Symbol extraction** for TypeScript, JavaScript, Python, Java, Go
 - **PageRank repo map** — surfaces the files that matter structurally, not just lexically
@@ -59,7 +59,7 @@ Mitii sits in the middle: local execution, deep repo indexing, explicit Plan/Act
 - **Research subagents** — parallel read-only workers for exploration (`spawn_research_agent`)
 - **Task decomposition** — multi-step plans with lifecycle tracking and step completion markers
 - **Post-edit verification** — configurable lint/test commands after Act-mode runs
-- **Skills catalog** — drop `SKILL.md` files in `.thunder/skills/` and invoke them via `use_skill`
+- **Skills catalog** — drop `SKILL.md` files in `.mitii/skills/` and invoke them via `use_skill`
 
 ### Safety and control
 
@@ -75,7 +75,7 @@ Mitii sits in the middle: local execution, deep repo indexing, explicit Plan/Act
 - **Long-term memory** — `memory_search` / `memory_write` with FTS5 + optional vector hybrid search
 - **Post-task memory extraction** — observations captured after completed work
 - **Session history** — `agent_sessions` and `agent_turns` stored in SQLite; resume from the History tab
-- **Plan persistence** — plans saved to `task_plans` and `.thunder/tasks/`
+- **Plan persistence** — plans saved to `task_plans` and `.mitii/tasks/`
 
 ### MCP and integrations
 
@@ -87,7 +87,7 @@ Preloaded keyless MCP servers (disable with `thunder.mcp.preloadBuiltin: false`)
 | `memory` | Cross-session knowledge graph |
 | `sequential-thinking` | Structured reasoning helper |
 
-Add your own via `thunder.mcp.servers`, `.thunder/mcp.json`, or `.mcp.json`. MCP tools appear as `mcp__server__tool` and still pass through Mitii's approval policy.
+Add your own via `thunder.mcp.servers`, `.mitii/mcp.json`, or `.mcp.json`. MCP tools appear as `mcp__server__tool` and still pass through Mitii's approval policy.
 
 ### UI
 
@@ -154,7 +154,7 @@ See `package.json` → `contributes.configuration` for the full schema, or the [
 Mitii picks up methodology files automatically:
 
 - `AGENTS.md`, `CLAUDE.md`, `WARP.md`, `.cursorrules`
-- `.thunder/rules`, `.thunder/agents`, `.thunder/checks`, `.thunder/prompts`
+- `.mitii/rules`, `.mitii/agents`, `.mitii/checks`, `.mitii/prompts`
 - `.clinerules`, `.continue/rules`, `.cursor/rules`
 
 Commit these to your repo so every session starts with the same conventions.
@@ -177,7 +177,7 @@ VS Code Extension
        └─ McpManager
 ```
 
-Data lives in `.thunder/` inside your workspace (`thunder.sqlite`, logs, checkpoints, tasks). Nothing is sent to a Mitii server — there isn't one.
+Data lives in `.mitii/` inside your workspace (`mitii.sqlite`, logs, checkpoints, tasks). Nothing is sent to a Mitii server — there isn't one.
 
 ---
 
@@ -195,7 +195,7 @@ npm run rebuild:node            # for local vitest runs
 
 **Provider errors** — check base URL and model name. Echo provider works without a running LLM.
 
-**Indexing stuck or empty** — verify the workspace is writable, check `.gitignore` / `.thunderignore`, run `Mitii: Index Workspace`.
+**Indexing stuck or empty** — verify the workspace is writable, check `.gitignore` / `.mitiiignore`, run `Mitii: Index Workspace`.
 
 **Context feels thin** — confirm indexing finished, enable vectors (`thunder.indexing.vectorsEnabled`), and check the context budget warning banner in chat.
 

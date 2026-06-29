@@ -22,7 +22,7 @@ export class PlanFileStore {
   ) {}
 
   private planDir(): string {
-    return join(this.workspace, '.thunder', 'tasks', this.taskId);
+    return join(this.workspace, '.mitii', 'tasks', this.taskId);
   }
 
   private planPath(): string {

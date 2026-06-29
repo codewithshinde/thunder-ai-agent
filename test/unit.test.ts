@@ -400,20 +400,20 @@ describe('ProjectRulesService', () => {
     }
   });
 
-  it('loads markdown files from Thunder rule, agent, check, and prompt folders', () => {
+  it('loads markdown files from Mitii rule, agent, check, and prompt folders', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-rules-test-'));
     try {
-      for (const relDir of ['.thunder/rules', '.thunder/agents', '.thunder/checks', '.thunder/prompts']) {
+      for (const relDir of ['.mitii/rules', '.mitii/agents', '.mitii/checks', '.mitii/prompts']) {
         mkdirSync(join(tempDir, relDir), { recursive: true });
         writeFileSync(join(tempDir, relDir, 'methodology.md'), `${relDir} instructions`);
       }
 
       const rules = new ProjectRulesService(tempDir).load();
       expect(rules.map((rule) => rule.relPath)).toEqual([
-        '.thunder/rules/methodology.md',
-        '.thunder/agents/methodology.md',
-        '.thunder/checks/methodology.md',
-        '.thunder/prompts/methodology.md',
+        '.mitii/rules/methodology.md',
+        '.mitii/agents/methodology.md',
+        '.mitii/checks/methodology.md',
+        '.mitii/prompts/methodology.md',
       ]);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -791,6 +791,15 @@ describe('TaskAnalyzer', () => {
       '@src/utils/kitchen-status.ts Can you imporve the Ui and UX of this file and also its child compoenents, cards and all',
       'act'
     );
+
+    expect(result.kind).toBe('implementation');
+    expect(result.shouldPlan).toBe(true);
+    expect(result.shouldVerify).toBe(true);
+  });
+
+  it('treats short product/action trigger words as implementation work', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const result = analyzeTask('need animated enterprise landing page UI', 'act');
 
     expect(result.kind).toBe('implementation');
     expect(result.shouldPlan).toBe(true);
@@ -1195,9 +1204,6 @@ describe('SessionLogService', () => {
 
     const dir = mkdtempSync(join(tmpdir(), 'thunder-log-'));
     const workspace = join(dir, 'ws');
-    const { mkdirSync } = await import('fs');
-    mkdirSync(join(workspace, '.thunder', 'logs'), { recursive: true });
-
     const log = new SessionLogService();
     log.configure(workspace, 'sess-1', true);
     log.writeSessionHeader({ mode: 'act' });
@@ -1205,12 +1211,56 @@ describe('SessionLogService', () => {
     log.append('tool_start', 'read_file', { input: { path: 'package.json' } });
 
     const path = log.getLogPath();
+    expect(path).toContain('.mitii/logs');
     expect(path).toContain('sess-1.jsonl');
     const content = readFileSync(path!, 'utf-8');
     expect(content).toContain('user_message');
+    const firstEvent = JSON.parse(content.trim().split('\n')[0]);
+    expect(firstEvent.time).toEqual(expect.any(String));
+    expect(firstEvent.data.startedAtLocal).toEqual(expect.any(String));
     expect(log.exportSummary()).toContain('sess-1');
 
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('records canonical tool start and end fields from ToolRuntime', async () => {
+    const { z } = await import('zod');
+    const { readFileSync } = await import('fs');
+    const { ToolRuntime } = await import('../src/core/tools/ToolRuntime');
+    const { SessionLogService } = await import('../src/core/telemetry/SessionLogService');
+
+    const dir = mkdtempSync(join(tmpdir(), 'thunder-tool-log-'));
+    try {
+      const runtime = new ToolRuntime();
+      const log = new SessionLogService();
+      log.configure(dir, 'tool-session', true, true);
+      runtime.setSessionLog(log);
+      runtime.register({
+        name: 'run_command',
+        description: 'Run command',
+        risk: 'low',
+        inputSchema: z.object({ command: z.string() }),
+        execute: async (input: { command: string }) => ({ success: true, output: `ran ${input.command}` }),
+      });
+
+      const result = await runtime.execute('run_command', { command: 'npm test' });
+      expect(result.success).toBe(true);
+
+      const lines = readFileSync(log.getLogPath(), 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
+      const start = lines.find((event) => event.type === 'tool_start');
+      const end = lines.find((event) => event.type === 'tool_end');
+      expect(start.data.toolCallId).toEqual(expect.any(String));
+      expect(end.data.toolCallId).toBe(start.data.toolCallId);
+      expect(start.data.toolName).toBe('run_command');
+      expect(start.data.command).toBe('npm test');
+      expect(end.data.success).toBe(true);
+      expect(end.data.durationMs).toEqual(expect.any(Number));
+      expect(end.data.inputPreview).toContain('npm test');
+      expect(end.data.outputPreview).toContain('ran npm test');
+      expect(log.exportSummary()).toContain('## Tool calls');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

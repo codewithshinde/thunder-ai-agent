@@ -55,7 +55,7 @@ export class SkillCatalogService {
   }
 
   private skillsRoot(): string {
-    return join(this.workspace, '.thunder', 'skills');
+    return join(this.workspace, '.mitii', 'skills');
   }
 
   private writeCatalog(): void {
@@ -81,7 +81,7 @@ export class SkillCatalogContextSource implements ContextSource {
     return [{
       id: 'skill-catalog',
       source: 'skills',
-      relPath: '.thunder/skills/catalog.json',
+      relPath: '.mitii/skills/catalog.json',
       content,
       score: 3,
       reason: 'Workspace skill catalog',

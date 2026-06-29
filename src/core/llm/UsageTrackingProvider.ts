@@ -54,7 +54,7 @@ export class UsageTrackingProvider implements LlmProvider {
   }
 }
 
-function estimateChatRequestTokens(request: ChatRequest): number {
+export function estimateChatRequestTokens(request: ChatRequest): number {
   const messageTokens = estimateTokens(
     request.messages
       .map((message) => {

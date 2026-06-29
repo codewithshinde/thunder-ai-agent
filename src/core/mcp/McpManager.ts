@@ -186,7 +186,7 @@ export function resolveMcpServers(config: McpConfig, workspace: string): Record<
 
 function loadWorkspaceMcpServers(workspace: string): Record<string, McpServerConfig> {
   if (!workspace) return {};
-  const files = [join(workspace, '.thunder', 'mcp.json'), join(workspace, '.mcp.json')];
+  const files = [join(workspace, '.mitii', 'mcp.json'), join(workspace, '.mcp.json')];
   const merged: Record<string, McpServerConfig> = {};
 
   for (const file of files) {

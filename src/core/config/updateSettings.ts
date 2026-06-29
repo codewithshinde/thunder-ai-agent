@@ -4,6 +4,7 @@ import type {
   McpSettingsPayload,
   ProviderSettingsPayload,
   SafetySettingsPayload,
+  TelemetrySettingsPayload,
   ThunderSettingsPayload,
 } from '../../vscode/webview/messages';
 
@@ -56,9 +57,17 @@ export async function updateMcpSettings(settings: McpSettingsPayload): Promise<v
   await config.update('mcp.enabled', settings.enabled, target);
 }
 
+export async function updateTelemetrySettings(settings: TelemetrySettingsPayload): Promise<void> {
+  const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+  const target = vscode.ConfigurationTarget.Global;
+  await config.update('telemetry.sessionLogging', settings.sessionLogging, target);
+  await config.update('telemetry.debugMetrics', settings.debugMetrics, target);
+}
+
 export async function updateAllSettings(settings: ThunderSettingsPayload): Promise<void> {
   await updateProviderSettings(settings.provider);
   await updateAgentSettings(settings.agent);
   await updateSafetySettings(settings.safety);
   await updateMcpSettings(settings.mcp);
+  await updateTelemetrySettings(settings.telemetry);
 }

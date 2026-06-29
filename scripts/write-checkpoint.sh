@@ -35,6 +35,6 @@ const checkpoint = {
   findings: process.env.THUNDER_CHECKPOINT_FINDINGS || '',
 };
 
-writeFileSync('.thunder-state.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
-console.log('Wrote .thunder-state.json');
+writeFileSync('.mitii-state.json', `${JSON.stringify(checkpoint, null, 2)}\n`);
+console.log('Wrote .mitii-state.json');
 NODE

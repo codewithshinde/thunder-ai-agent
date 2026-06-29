@@ -34,11 +34,11 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
     : 0;
 
   const tooltip = [
-    `AI usage: ${sessionTotal.toLocaleString()} estimated tokens`,
+    `Session AI tokens: ${sessionTotal.toLocaleString()} estimated input + output tokens`,
     `Input: ${inputTotal.toLocaleString()} · Output: ${outputTotal.toLocaleString()}`,
     `AI calls: ${aiCallCount.toLocaleString()} total · ${currentTurnAiCallCount.toLocaleString()} this turn`,
-    `Context window: ${usage.lastPromptTokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()}`,
-    `Context: ${usage.lastContextTokens.toLocaleString()} · Output: ${usage.lastResponseTokens.toLocaleString()}`,
+    `Last model request: ${usage.lastPromptTokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()}`,
+    `Retrieved context: ${usage.lastContextTokens.toLocaleString()} · Output: ${usage.lastResponseTokens.toLocaleString()}`,
     `${usage.turnCount} turns · ${pct}% of context window`,
   ].join('\n');
 
@@ -68,7 +68,7 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
           type="button"
           className={`token-chip${open ? ' token-chip--active' : ''}`}
           title={tooltip}
-          aria-label="Token usage"
+          aria-label="Session token usage"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
@@ -78,11 +78,11 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
         {open && (
           <div className="token-popover__panel" role="dialog" aria-label="Token usage details">
             <div className="token-popover__header">
-              <span>AI Usage</span>
+              <span>Session AI Tokens</span>
               <strong>{usage.estimated ? 'Estimated' : 'Provider reported'}</strong>
             </div>
             <div className="token-popover__summary">
-              <span>{formatCompact(sessionTotal)} total tokens · {aiCallCount.toLocaleString()} calls</span>
+              <span>{formatCompact(sessionTotal)} lifetime input + output · {aiCallCount.toLocaleString()} calls</span>
             </div>
             <dl className="token-popover__stats token-popover__stats--primary">
               <div>
@@ -94,20 +94,20 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
                 <dd>{outputTotal.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>This turn</dt>
+                <dt>Turn total</dt>
                 <dd>{currentTurnTotal.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Turn calls</dt>
+                <dt>Turn AI calls</dt>
                 <dd>{currentTurnAiCallCount.toLocaleString()}</dd>
               </div>
             </dl>
             <div className="token-popover__section-title">
-              <span>Context Window</span>
-              <strong>{pct}% Full</strong>
+              <span>Last Model Request</span>
+              <strong>{pct}% Used</strong>
             </div>
             <div className="token-popover__summary">
-              <span>{formatCompact(usage.lastPromptTokens)} / {formatCompact(usage.contextWindow)} Tokens</span>
+              <span>{formatCompact(usage.lastPromptTokens)} input tokens / {formatCompact(usage.contextWindow)} window</span>
             </div>
             <div className="token-popover__bar" aria-hidden="true">
               <div className="token-popover__fill" style={{ width: `${pct}%` }} />
@@ -152,23 +152,23 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
                 <dd>{lastCallOutput.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Turn input</dt>
+                <dt>Turn input total</dt>
                 <dd>{currentTurnInput.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Turn output</dt>
+                <dt>Turn output total</dt>
                 <dd>{currentTurnOutput.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Last prompt</dt>
+                <dt>Last request input</dt>
                 <dd>{usage.lastPromptTokens.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Context</dt>
+                <dt>Retrieved context</dt>
                 <dd>{usage.lastContextTokens.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Output</dt>
+                <dt>Last output</dt>
                 <dd>{usage.lastResponseTokens.toLocaleString()}</dd>
               </div>
               <div>
@@ -176,7 +176,7 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
                 <dd>{usage.turnCount.toLocaleString()}</dd>
               </div>
               <div>
-                <dt>Window</dt>
+                <dt>Window used</dt>
                 <dd>{pct}%</dd>
               </div>
             </dl>
@@ -189,7 +189,7 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
   return (
     <div className="token-meter" title={tooltip}>
       <div className="token-meter__row">
-        <span className="token-meter__label">AI tokens</span>
+        <span className="token-meter__label">Session tokens</span>
         <span className="token-meter__value">{formatCompact(sessionTotal)}</span>
       </div>
       <div className="token-meter__bar" aria-hidden="true">

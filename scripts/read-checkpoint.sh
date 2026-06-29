@@ -4,15 +4,15 @@ set -euo pipefail
 ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 cd "$ROOT"
 
-if [[ ! -f .thunder-state.json ]]; then
-  echo "No .thunder-state.json checkpoint found in $ROOT" >&2
+if [[ ! -f .mitii-state.json ]]; then
+  echo "No .mitii-state.json checkpoint found in $ROOT" >&2
   exit 1
 fi
 
 node <<'NODE'
 const { readFileSync } = require('fs');
 
-const checkpoint = JSON.parse(readFileSync('.thunder-state.json', 'utf8'));
+const checkpoint = JSON.parse(readFileSync('.mitii-state.json', 'utf8'));
 console.log(`Saved: ${checkpoint.savedAt}`);
 console.log(`Branch: ${checkpoint.branch || '(unknown)'}`);
 console.log(`Commit: ${checkpoint.commit || '(unknown)'}`);

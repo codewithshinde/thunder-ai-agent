@@ -43,6 +43,7 @@ import type { AgentTaskState } from './agent/AgentTaskState';
 import type { PostEditValidator } from './apply/PostEditValidator';
 import { showWriteDiffPreview, showPatchDiffPreview } from '../vscode/diffPreview';
 import { toWorkspaceRelPath } from './vscode/pathUtils';
+import { estimateChatRequestTokens } from './llm/UsageTrackingProvider';
 
 const log = createLogger('ChatOrchestrator');
 
@@ -412,7 +413,10 @@ export class ChatOrchestrator {
         { final: false }
       );
     };
-    livePromptTokens = displayPack.totalTokens + Math.ceil(userMessage.length / 4);
+    livePromptTokens = estimateChatRequestTokens({
+      messages: [{ role: 'user', content: userMessage }],
+      tools: tools.length > 0 ? tools : undefined,
+    });
     livePromptMessages = [{ role: 'user', content: userMessage }];
     emitLiveTokenUsage();
     const sharedLoopCallbacks = this.buildLoopCallbacks(emitLiveTokenUsage);
@@ -649,7 +653,10 @@ export class ChatOrchestrator {
         isResume,
         explicitResult.formatted || undefined
       );
-      const promptTokens = estimatePromptTokens(messages);
+      const promptTokens = estimateChatRequestTokens({
+        messages,
+        tools: tools.length > 0 ? tools : undefined,
+      });
       livePromptTokens = promptTokens;
       livePromptMessages = messages;
       liveExplicitContextBlock = explicitResult.formatted || undefined;
@@ -840,7 +847,7 @@ export class ChatOrchestrator {
     const usageMessages =
       promptMessages ??
       buildPrompt(session.mode, pack, userMessage, compacted, false, false, undefined, false, explicitContextBlock);
-    const tokens = promptTokens || estimatePromptTokens(usageMessages);
+    const tokens = promptTokens || estimateChatRequestTokens({ messages: usageMessages });
     this.onTokenUsage?.(
       tokens,
       pack.totalTokens,
@@ -848,10 +855,10 @@ export class ChatOrchestrator {
       this.buildTokenBreakdown(usageMessages, pack, compacted),
       { final: true }
     );
-    this.deps.sessionLog?.append('token_usage', 'Turn token usage', {
-      promptTokens: tokens,
-      contextTokens: pack.totalTokens,
-      responseTokens: Math.ceil(fullResponse.length / 4),
+    this.deps.sessionLog?.appendDebug('token_usage', 'Prompt assembly token estimate', {
+      promptAssemblyTokens: tokens,
+      retrievedContextTokens: pack.totalTokens,
+      responseEstimateTokens: Math.ceil(fullResponse.length / 4),
     });
   }
 
@@ -926,22 +933,12 @@ export class ChatOrchestrator {
     return {
       onToolStart: (name, input) => {
         lastToolInputs.set(name, input);
-        sessionLog?.append('tool_start', name, {
-          tool: name,
-          path: typeof input.path === 'string' ? input.path : undefined,
-        });
-        sessionLog?.appendDebug('tool_start', name, { input });
         void this.previewDiffIfWrite(name, input);
         const activity = describeToolActivity(name, input, 'start');
         this.setLiveStatus(activity.liveLabel, activity.detail);
         this.emitActivity(activity.kind, activity.message, activity.detail);
       },
-      onToolEnd: (name, success, output, durationMs) => {
-        sessionLog?.append('tool_end', name, {
-          success,
-          durationMs,
-          outputPreview: output?.slice(0, 500),
-        });
+      onToolEnd: (name, success, output) => {
         if (output === 'Awaiting approval') {
           this.setLiveStatus('Waiting for approval', name);
           this.emitActivity(

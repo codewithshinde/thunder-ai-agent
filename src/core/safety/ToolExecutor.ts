@@ -11,6 +11,7 @@ import {
   type PlanPhase,
 } from '../planning/PlanActEngine';
 import { createLogger } from '../telemetry/Logger';
+import type { SessionLogService } from '../telemetry/SessionLogService';
 
 const log = createLogger('ToolExecutor');
 
@@ -37,7 +38,8 @@ export class ToolExecutor {
     private readonly getSessionId: () => string,
     private readonly getMode: () => string,
     private readonly onPendingApproval?: () => void,
-    private readonly getTaskState?: () => AgentTaskState | undefined
+    private readonly getTaskState?: () => AgentTaskState | undefined,
+    private readonly sessionLog?: SessionLogService
   ) {}
 
   setPlanPhaseLock(phase?: PlanPhase): void {
@@ -58,7 +60,7 @@ export class ToolExecutor {
     const effectivePhaseLock = context?.phaseLock ?? this.planPhaseLockOverride;
     const phaseCheck = isToolAllowedInPlanPhase(effectivePhaseLock, toolName, input);
     if (!phaseCheck.allowed) {
-      return { success: false, output: '', error: phaseCheck.reason ?? 'Tool blocked by current plan phase' };
+      return this.finishBlocked(toolName, input, phaseCheck.reason ?? 'Tool blocked by current plan phase');
     }
 
     if (
@@ -66,34 +68,36 @@ export class ToolExecutor {
       toolName === 'run_command' &&
       !isReadOnlyCommand(typeof input.command === 'string' ? input.command : '')
     ) {
-      return {
-        success: false,
-        output: '',
-        error: 'Generic run_command is restricted to read-only commands during high-complexity audit tasks. Use execute_workspace_script for approved helper scripts.',
-      };
+      return this.finishBlocked(
+        toolName,
+        input,
+        'Generic run_command is restricted to read-only commands during high-complexity audit tasks. Use execute_workspace_script for approved helper scripts.'
+      );
     }
 
     const blocked = this.getTaskState?.()?.checkBlocked(toolName, input);
     if (blocked) {
       const soft = this.getTaskState?.()?.buildSoftBlockResponse(toolName, input);
-      return { success: true, output: soft ?? blocked };
+      const output = soft ?? blocked;
+      this.logRejectedToolCall(toolName, input, true, output);
+      return { success: true, output };
     }
 
     if (['write_file', 'apply_patch'].includes(toolName) && !isWriteAllowed(mode)) {
-      return { success: false, output: '', error: 'Writes blocked in Plan/Review mode' };
+      return this.finishBlocked(toolName, input, 'Writes blocked in Plan/Review mode');
     }
     if (toolName === 'apply_patch' && !isPatchAllowed(mode)) {
-      return { success: false, output: '', error: 'Patch apply blocked in Plan/Review mode' };
+      return this.finishBlocked(toolName, input, 'Patch apply blocked in Plan/Review mode');
     }
     if (toolName === 'run_command' && !isShellAllowed(mode, typeof input.command === 'string' ? input.command : undefined)) {
-      return { success: false, output: '', error: 'Shell blocked in Plan/Review mode (read-only commands like depcheck/grep are allowed)' };
+      return this.finishBlocked(toolName, input, 'Shell blocked in Plan/Review mode (read-only commands like depcheck/grep are allowed)');
     }
 
     const sessionId = this.getSessionId();
     const policy = this.policyEngine.evaluate(toolName, input);
 
     if (policy.decision === 'block') {
-      return { success: false, output: '', error: policy.reason };
+      return this.finishBlocked(toolName, input, policy.reason);
     }
 
     if (policy.decision === 'require_approval') {
@@ -102,6 +106,7 @@ export class ToolExecutor {
           toolCallId: context?.toolCallId,
         });
         this.onPendingApproval?.();
+        this.logRejectedToolCall(toolName, input, false, 'Awaiting approval', 'Awaiting approval');
         return { success: false, output: '', pendingApproval: true, error: 'Awaiting approval' };
       }
     }
@@ -114,6 +119,52 @@ export class ToolExecutor {
     return result;
   }
 
+  private finishBlocked(toolName: string, input: Record<string, unknown>, error: string): ToolExecutionResult {
+    this.logRejectedToolCall(toolName, input, false, error, error);
+    return { success: false, output: '', error };
+  }
+
+  private logRejectedToolCall(
+    toolName: string,
+    input: Record<string, unknown>,
+    success: boolean,
+    output: string,
+    error?: string
+  ): void {
+    const toolCallId = createToolCallId(toolName);
+    const inputPreview = previewInput(input);
+    this.sessionLog?.append('tool_start', toolName, {
+      toolCallId,
+      tool: toolName,
+      toolName,
+      path: typeof input.path === 'string' ? input.path : undefined,
+      command: typeof input.command === 'string' ? input.command : undefined,
+      inputPreview,
+    });
+    this.sessionLog?.appendDebug('tool_start', toolName, { toolCallId, tool: toolName, toolName, input });
+    this.sessionLog?.append('tool_end', toolName, {
+      toolCallId,
+      tool: toolName,
+      toolName,
+      path: typeof input.path === 'string' ? input.path : undefined,
+      command: typeof input.command === 'string' ? input.command : undefined,
+      success,
+      failure: !success,
+      durationMs: 0,
+      inputPreview,
+      outputPreview: output.slice(0, 500),
+      error,
+    });
+    this.sessionLog?.appendDebug('tool_end', toolName, {
+      toolCallId,
+      tool: toolName,
+      toolName,
+      input,
+      result: { success, output, error },
+      durationMs: 0,
+    });
+  }
+
   async executeApproved(toolName: string, input: Record<string, unknown>): Promise<ToolExecutionResult> {
     const result = await this.toolRuntime.execute(toolName, input);
     if (result.success) {
@@ -121,4 +172,16 @@ export class ToolExecutor {
     }
     return result;
   }
+}
+
+function previewInput(input: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(input).slice(0, 500);
+  } catch {
+    return String(input).slice(0, 500);
+  }
+}
+
+function createToolCallId(toolName: string): string {
+  return `${toolName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

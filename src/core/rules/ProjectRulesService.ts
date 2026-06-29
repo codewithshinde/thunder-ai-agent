@@ -14,10 +14,10 @@ const RULE_FILES = [
 ];
 
 const RULE_DIRS = [
-  '.thunder/rules',
-  '.thunder/agents',
-  '.thunder/checks',
-  '.thunder/prompts',
+  '.mitii/rules',
+  '.mitii/agents',
+  '.mitii/checks',
+  '.mitii/prompts',
   '.clinerules',
   '.continue/rules',
   '.continue/agents',

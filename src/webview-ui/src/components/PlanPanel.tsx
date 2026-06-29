@@ -48,6 +48,13 @@ export function PlanPanel({ plan, mode = 'plan', loading = false, liveStatus = n
         <div>
           <p className="plan-panel__eyebrow">Planner</p>
           <h2>{plan.goal}</h2>
+          {plan.assumptions.length > 0 && (
+            <ul className="plan-panel__assumptions" aria-label="Plan assumptions">
+              {plan.assumptions.map((assumption, index) => (
+                <li key={`${index}-${assumption}`}>{assumption}</li>
+              ))}
+            </ul>
+          )}
           {running && loading && (
             <p className="plan-panel__running">Running: {running.title}</p>
           )}
@@ -58,7 +65,12 @@ export function PlanPanel({ plan, mode = 'plan', loading = false, liveStatus = n
         {plan.steps.map((step, index) => (
           <li key={step.id} className={`plan-step plan-step--${step.status}`}>
             <span className="plan-step__index">{index + 1}</span>
-            <span className="plan-step__title">{step.title}</span>
+            <span className="plan-step__body">
+              <span className="plan-step__title">{step.title}</span>
+              {step.files && step.files.length > 0 && (
+                <span className="plan-step__files">{step.files.join(', ')}</span>
+              )}
+            </span>
             <span className="plan-step__status">{STATUS_LABEL[step.status]}</span>
           </li>
         ))}

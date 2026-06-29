@@ -420,6 +420,16 @@ body,
   font-weight: 500;
 }
 
+.plan-panel__assumptions {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--thunder-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 @keyframes planPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.92; }
@@ -471,9 +481,9 @@ body,
 .plan-step {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: start;
   gap: 8px;
-  min-height: 28px;
+  min-height: 30px;
   color: var(--thunder-muted);
   font-size: 12px;
 }
@@ -488,10 +498,25 @@ body,
   font-size: 10px;
 }
 
+.plan-step__body {
+  min-width: 0;
+}
+
 .plan-step__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: block;
+  color: var(--thunder-fg);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.plan-step__files {
+  display: block;
+  margin-top: 2px;
+  color: var(--thunder-muted);
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .plan-step__status {

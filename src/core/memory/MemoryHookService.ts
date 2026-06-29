@@ -23,13 +23,13 @@ export interface HookResult {
 
 /**
  * Hook-based context injection (claude-mem / Cline hooks pattern).
- * Runs optional scripts from `.thunder/hooks/<HookName>` and merges stdout as context.
+ * Runs optional scripts from `.mitii/hooks/<HookName>` and merges stdout as context.
  */
 export class MemoryHookService {
   constructor(private readonly workspace: string) {}
 
   async runHook(hookName: string, ctx: Omit<HookContext, 'hookName'>): Promise<HookResult> {
-    const hookPath = join(this.workspace, '.thunder', 'hooks', hookName);
+    const hookPath = join(this.workspace, '.mitii', 'hooks', hookName);
     if (!existsSync(hookPath)) {
       return {};
     }
