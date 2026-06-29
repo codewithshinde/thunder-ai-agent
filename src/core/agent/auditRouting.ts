@@ -1,5 +1,7 @@
 /** Route dependency audits away from slow LLM search loops toward deterministic scripts. */
 
+import { AGENT_NAME } from '../../shared/brand';
+
 export const DEPENDENCY_AUDIT_SCRIPTS = [
   {
     name: 'audit-dependencies.mjs',
@@ -55,7 +57,7 @@ export function buildScriptFirstAuditMessage(task: string): string {
   return [
     'AUDIT SUBAGENT BLOCKED — would take 60–380s via sequential LLM search loops with no findings.',
     '',
-    'Run these in your NEXT tool call (scripts live in Thunder extension; execute_workspace_script resolves them automatically):',
+    `Run these in your NEXT tool call (scripts live in ${AGENT_NAME} extension; execute_workspace_script resolves them automatically):`,
     scripts,
     '',
     'Preferred:',
@@ -80,7 +82,7 @@ You MUST call these tools BEFORE any list_files, search, or spawn_research_agent
 1. execute_workspace_script({ script: "audit-dependencies.mjs" })
 2. execute_workspace_script({ script: "audit-dead-code.sh" })
 
-Thunder runs bundled scripts from the extension when the workspace has no scripts/ folder.
+${AGENT_NAME} runs bundled scripts from the extension when the workspace has no scripts/ folder.
 Subagents are DISABLED for audit tasks — they caused 108s+ black holes with "(no findings)".
 
 After script output: report findings with confidence (high/medium/low). Only then proceed to edits.`;

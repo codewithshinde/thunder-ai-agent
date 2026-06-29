@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { AGENT_NAME } from '../../../shared/brand';
 import type { WorkspaceNoticeView } from '../../../vscode/webview/messages';
 import { SettingNote } from './SettingNote';
 
@@ -44,7 +45,7 @@ export function WorkspaceSettingsSection({
       <h3>Workspace</h3>
 
       <SettingNote title="Why this matters">
-        Thunder needs a <strong>project root</strong> to index files, run tools, and build context.
+        {AGENT_NAME} needs a <strong>project root</strong> to index files, run tools, and build context.
         When you debug with F5, the Extension Host may open the <em>monorepo</em> folder — not your app.
         Use <strong>Browse</strong> or paste the absolute path to the project you want the agent to work on
         (e.g. your Kitchen KOT app), then <strong>Save &amp; apply</strong> and <strong>Index</strong>.
@@ -87,7 +88,7 @@ export function WorkspaceSettingsSection({
       <p className="settings-label">VS Code open folders (this window)</p>
       {vscodeWorkspaceFolders.length === 0 ? (
         <SettingNote variant="warn" title="F5 / Extension Development Host">
-          No folder is open in this window. That is normal when debugging Thunder itself.
+          No folder is open in this window. That is normal when debugging {AGENT_NAME} itself.
           Set a <strong>workspace path override</strong> below — it is saved even without an open folder.
           Launch config tip: use <em>Run Extension (parent monorepo)</em> or open your target project folder.
         </SettingNote>
@@ -112,7 +113,7 @@ export function WorkspaceSettingsSection({
           aria-label="Workspace path override"
         />
         <span className="settings-hint">
-          Absolute path to the repo Thunder should use. Persisted locally (works without an open VS Code folder).
+          Absolute path to the repo {AGENT_NAME} should use. Persisted locally (works without an open VS Code folder).
           Leave empty to use the folder open in VS Code.
         </span>
       </label>

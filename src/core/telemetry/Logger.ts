@@ -1,3 +1,5 @@
+import { AGENT_NAME } from '../../shared/brand';
+
 const SECRET_PATTERNS = [
   /sk-[a-zA-Z0-9]{10,}/g,
   /Bearer\s+[a-zA-Z0-9._-]+/gi,
@@ -49,7 +51,7 @@ function sanitizeMeta(meta?: Record<string, unknown>): Record<string, unknown> |
 }
 
 export function createLogger(scope: string): Logger {
-  const prefix = `[Thunder:${scope}]`;
+  const prefix = `[${AGENT_NAME}:${scope}]`;
 
   function log(level: LogLevel, message: string, meta?: Record<string, unknown>): void {
     const safeMessage = redactSecrets(message);

@@ -1,3 +1,5 @@
+import { AGENT_NAME } from '../../../shared/brand';
+
 interface WorkspaceBannerProps {
   workspaceOpen: boolean;
   workspacePath: string;
@@ -18,7 +20,7 @@ export function WorkspaceBanner({
   if (!workspaceTrusted) {
     return (
       <div className="workspace-banner workspace-banner--warn" role="alert">
-        <strong>Restricted mode.</strong> This workspace is not trusted — Thunder runs read-only tools only (no writes or shell).
+        <strong>Restricted mode.</strong> This workspace is not trusted — {AGENT_NAME} runs read-only tools only (no writes or shell).
       </div>
     );
   }

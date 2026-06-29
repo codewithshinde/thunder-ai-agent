@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, relative } from 'path';
 import type { ContextItem, ContextQuery, ContextSource } from '../context/types';
 import { createLogger } from '../telemetry/Logger';
+import { AGENT_NAME } from '../../shared/brand';
 
 const log = createLogger('SkillCatalog');
 
@@ -73,7 +74,7 @@ export class SkillCatalogContextSource implements ContextSource {
     const entries = this.catalog.list();
     if (entries.length === 0) return [];
     const content = [
-      '## Available Thunder Skills',
+      `## Available ${AGENT_NAME} Skills`,
       'Use the use_skill tool with one of these names when the playbook applies:',
       ...entries.map((entry) => `- ${entry.name}: ${entry.description} (${entry.relPath})`),
     ].join('\n');

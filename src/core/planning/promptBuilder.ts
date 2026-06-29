@@ -2,6 +2,7 @@ import type { ContextPack } from '../context/types';
 import type { ChatMessage } from '../llm/types';
 import type { ThunderMode } from '../ThunderSession';
 import type { ThunderPlan } from './PlanActEngine';
+import { AGENT_NAME } from '../../shared/brand';
 import { CHAT_HISTORY_GUIDANCE, STATE_MACHINE_GUIDANCE } from '../agent/taskStatePrompt';
 import { buildAuditBootstrapBlock } from '../agent/auditRouting';
 
@@ -103,7 +104,7 @@ For multi-step tasks in Plan mode, include:
 }
 \`\`\``;
 
-  return `You are Thunder, a local-first VS Code coding agent with codebase context injected below.
+  return `You are ${AGENT_NAME}, a local-first VS Code coding agent with codebase context injected below.
 
 ${modeInstructions[mode]}
 ${toolsEnabled ? TOOL_GUIDANCE : ''}

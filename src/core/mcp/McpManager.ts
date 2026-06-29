@@ -113,7 +113,7 @@ export class McpManager {
       stderr: 'pipe',
     });
     const client = new Client(
-      { name: 'thunder-ai-agent', version: '0.1.0' },
+      { name: 'mitii-ai-agent', version: '0.1.0' },
       { capabilities: {} }
     );
 

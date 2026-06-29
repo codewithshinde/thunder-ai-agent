@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { LOGO_EMOJI } from '../../shared/brand';
 import { useVsCodeMessaging } from './state/useVsCodeMessaging';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
@@ -28,7 +29,7 @@ export function App() {
     <div className="thunder-app">
       <header className="thunder-toolbar">
         <div className="toolbar-brand">
-          <span className="thunder-logo" aria-hidden="true">⚡</span>
+          <span className="thunder-logo" aria-hidden="true">{LOGO_EMOJI}</span>
           <span className="toolbar-provider" title={state.providerLabel}>
             {state.providerLabel}
           </span>

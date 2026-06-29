@@ -1,6 +1,6 @@
-# Contributing to Thunder AI Agent
+# Contributing to Mitii AI Agent
 
-Thanks for looking at Thunder. This doc covers how to get a dev environment running, where things live in the repo, and what we expect in pull requests.
+Thanks for looking at Mitii. This doc covers how to get a dev environment running, where things live in the repo, and what we expect in pull requests.
 
 Maintainer: **codewithshinde** — [codewithshinde@gmail.com](mailto:codewithshinde@gmail.com)
 
@@ -8,7 +8,7 @@ Maintainer: **codewithshinde** — [codewithshinde@gmail.com](mailto:codewithshi
 
 ## Before you start
 
-Thunder is released under [AGPL-3.0-or-later](LICENSE). By contributing code, you agree that your contributions will be licensed under the same terms. If that doesn't work for your employer or use case, reach out before investing a large amount of time.
+Mitii is released under [AGPL-3.0-or-later](LICENSE). By contributing code, you agree that your contributions will be licensed under the same terms. If that doesn't work for your employer or use case, reach out before investing a large amount of time.
 
 For bugs and feature ideas, open an [issue](https://github.com/codewithshinde/thunder-ai-agent/issues) first when the change is non-trivial — saves everyone a rework loop.
 
@@ -48,7 +48,7 @@ Git hooks are installed automatically via `npm install` → `prepare` → `scrip
 1. Open the repo root in VS Code
 2. Press **F5** — this opens an Extension Development Host
 3. In the new window, open a project folder (not the thunder-ai-agent repo itself, unless you're dogfooding)
-4. Click the Thunder icon in the activity bar
+4. Click the Mitii icon in the activity bar
 
 ### Watch mode (day-to-day dev)
 
@@ -92,6 +92,13 @@ thunder-ai-agent/
 ├── dist/                         # Compiled output (gitignored)
 └── package.json                  # Extension manifest + settings schema
 ```
+
+**Related repos** (standalone — not part of this package):
+
+- [mitii-docs](https://github.com/codewithshinde/mitii-docs) → docs.mitii.dev
+- [mitii-website](https://github.com/codewithshinde/mitii-website) → mitii.dev
+
+Scaffolds may exist at `mitii-docs/` and `mitii-website/` in this tree while you split them out. Brand constants: `src/shared/brand.ts` (sync with each repo's `brand.ts`).
 
 **Rule of thumb:** keep VS Code APIs out of `src/core/`. Core should be testable without launching an editor. Put platform glue in `src/vscode/`.
 
@@ -209,11 +216,11 @@ I review PRs as time allows. Small, well-scoped changes land faster.
 Include:
 
 - VS Code (or Cursor) version
-- Thunder version (`package.json` → `version`)
+- Mitii version (`package.json` → `version`)
 - OS
 - Provider config (model name and base URL — no API keys)
 - Steps to reproduce
-- Relevant session log from `.thunder/logs/` if you have one (`Thunder: Export Session Log`)
+- Relevant session log from `.thunder/logs/` if you have one (`Mitii: Export Session Log`)
 
 ---
 

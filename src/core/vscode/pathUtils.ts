@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../../shared/brand';
 import * as vscode from 'vscode';
 import { relative, resolve, isAbsolute } from 'path';
 import { existsSync } from 'fs';
@@ -32,10 +33,10 @@ export function toWorkspaceRelPath(uri: vscode.Uri, workspaceRoot: string): stri
 export function createWorkspacePattern(workspaceRoot: string, pattern: string): vscode.RelativePattern {
   const root = normalizeWorkspaceRoot(workspaceRoot);
   if (!root) {
-    throw new Error('Thunder workspace path is not set. Open a folder or set a path in Settings.');
+    throw new Error(`${AGENT_NAME} workspace path is not set. Open a folder or set a path in Settings.`);
   }
   if (!existsSync(root)) {
-    throw new Error(`Thunder workspace path does not exist: ${root}`);
+    throw new Error(`${AGENT_NAME} workspace path does not exist: ${root}`);
   }
   return new vscode.RelativePattern(vscode.Uri.file(root), pattern);
 }

@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { AGENT_NAME } from '../../shared/brand';
 import { createLogger } from './Logger';
 
 const log = createLogger('SessionLogService');
@@ -203,7 +204,7 @@ export class SessionLogService {
     const totalTimedMs = timings.reduce((sum, t) => sum + t.durationMs, 0);
 
     return [
-      `# Thunder session log summary`,
+      `# ${AGENT_NAME} session log summary`,
       `session: ${this.sessionId}`,
       `workspace: ${this.workspace}`,
       `log file: ${this.logPath}`,

@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../../shared/brand';
 import { z } from 'zod';
 import { readFileSync, readdirSync, writeFileSync, statSync } from 'fs';
 import { isAbsolute, join, relative, resolve } from 'path';
@@ -273,7 +274,7 @@ export function createSearchScriptCatalogTool(
   return {
     name: 'search_script_catalog',
     description:
-      'Search Thunder helper scripts by intent. Use before running specialized audits so only the relevant script name and command enter context.',
+      `Search ${AGENT_NAME} helper scripts by intent. Use before running specialized audits so only the relevant script name and command enter context.`,
     risk: 'low',
     inputSchema: z.object({ query: z.string(), limit: z.number().optional() }),
     async execute(input): Promise<ToolResult> {
@@ -704,7 +705,7 @@ function normalizeWorkspaceCommand(
 ): { command: string; cwd: string; note?: string; error?: string } {
   const root = normalizeWorkspaceRoot(workspace);
   if (!root) {
-    return { command, cwd: workspace, error: 'Thunder workspace path is not set.' };
+    return { command, cwd: workspace, error: `${AGENT_NAME} workspace path is not set.` };
   }
 
   const match = command.trim().match(/^cd\s+(?:"([^"]+)"|'([^']+)'|([^\s&;|]+))\s*&&\s*([\s\S]+)$/i);
@@ -727,13 +728,13 @@ function normalizeWorkspaceCommand(
       return {
         command: rest,
         cwd: root,
-        note: `Ignored missing cd target ${requested}; ran in Thunder workspace ${root}.`,
+        note: `Ignored missing cd target ${requested}; ran in ${AGENT_NAME} workspace ${root}.`,
       };
     }
     return {
       command: rest,
       cwd: root,
-      error: `Refusing to run command outside the Thunder workspace: ${requested}`,
+      error: `Refusing to run command outside the ${AGENT_NAME} workspace: ${requested}`,
     };
   }
 
@@ -741,7 +742,7 @@ function normalizeWorkspaceCommand(
     return {
       command: rest,
       cwd: root,
-      note: `Ignored missing cd target ${requested}; ran in Thunder workspace ${root}.`,
+      note: `Ignored missing cd target ${requested}; ran in ${AGENT_NAME} workspace ${root}.`,
     };
   }
 
@@ -875,7 +876,7 @@ export function createFetchWebTool(allowNetwork: () => boolean): Tool<{
     }),
     async execute(input): Promise<ToolResult> {
       if (!allowNetwork()) {
-        return { success: false, output: '', error: 'Network access disabled in Thunder settings' };
+        return { success: false, output: '', error: `Network access disabled in ${AGENT_NAME} settings` };
       }
 
       try {
@@ -883,7 +884,7 @@ export function createFetchWebTool(allowNetwork: () => boolean): Tool<{
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
         const response = await fetch(input.url, {
           signal: controller.signal,
-          headers: { 'User-Agent': 'Thunder-AI-Agent/0.1', Accept: 'text/html,application/json,text/plain,*/*' },
+          headers: { 'User-Agent': 'Mitii-AI-Agent/0.1', Accept: 'text/html,application/json,text/plain,*/*' },
         });
         clearTimeout(timer);
 

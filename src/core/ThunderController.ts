@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { AGENT_NAME, brandMessage } from '../shared/brand';
 import { existsSync, statSync } from 'fs';
 import { join } from 'path';
 import { ThunderSession } from './ThunderSession';
@@ -1075,7 +1076,7 @@ export class ThunderController {
       canSelectFolders: true,
       canSelectFiles: false,
       canSelectMany: false,
-      openLabel: 'Use as Thunder workspace',
+      openLabel: `Use as ${AGENT_NAME} workspace`,
       defaultUri: current ? vscode.Uri.file(current) : undefined,
     });
     if (!picked?.[0]) return;
@@ -1093,24 +1094,24 @@ export class ThunderController {
     const resolved = normalizeWorkspaceRoot(trimmed);
     if (!resolved) {
       this.setWorkspaceNotice('error', 'Invalid path. Use an absolute path like /Users/you/project');
-      void vscode.window.showErrorMessage('Thunder: Invalid workspace path.');
+      void vscode.window.showErrorMessage(brandMessage('Invalid workspace path.'));
       return;
     }
     if (!existsSync(resolved)) {
       this.setWorkspaceNotice('error', `Path does not exist: ${resolved}`);
-      void vscode.window.showErrorMessage(`Thunder: Path does not exist: ${resolved}`);
+      void vscode.window.showErrorMessage(`${AGENT_NAME}: Path does not exist: ${resolved}`);
       return;
     }
     if (!statSync(resolved).isDirectory()) {
       this.setWorkspaceNotice('error', `Path is not a folder: ${resolved}`);
-      void vscode.window.showErrorMessage(`Thunder: Path is not a folder: ${resolved}`);
+      void vscode.window.showErrorMessage(`${AGENT_NAME}: Path is not a folder: ${resolved}`);
       return;
     }
 
     await this.configService.setWorkspaceOverride(resolved);
     await this.reloadWorkspace();
     this.setWorkspaceNotice('ok', `Workspace saved: ${resolved}`);
-    void vscode.window.showInformationMessage(`Thunder: Using workspace ${resolved}`);
+    void vscode.window.showInformationMessage(`${AGENT_NAME}: Using workspace ${resolved}`);
   }
 
   async clearWorkspaceOverride(): Promise<void> {
@@ -1122,7 +1123,7 @@ export class ThunderController {
     } else {
       this.setWorkspaceNotice('warn', 'Override cleared. Open a folder or set a path below.');
     }
-    void vscode.window.showInformationMessage('Thunder: Using VS Code open folder for workspace.');
+    void vscode.window.showInformationMessage(brandMessage('Using VS Code open folder for workspace.'));
   }
 
   async sendMessage(
@@ -1158,7 +1159,7 @@ export class ThunderController {
     this.ensureChatOrchestrator();
     if (!this.chatOrchestrator) {
       throw normalizeError(new Error(
-        'No workspace configured. Open a folder (File → Open Folder) or set a path in Thunder Settings → Workspace.'
+        brandMessage('No workspace configured. Open a folder (File → Open Folder) or set a path in Settings → Workspace.')
       ));
     }
     this.chatOrchestrator.configure({
@@ -1389,7 +1390,7 @@ export class ThunderController {
   async exportSessionLog(): Promise<void> {
     const logPath = this.sessionLog.getLogPath();
     if (!logPath) {
-      void vscode.window.showWarningMessage('Thunder: No workspace configured for session logging.');
+      void vscode.window.showWarningMessage(brandMessage('No workspace configured for session logging.'));
       return;
     }
 
@@ -1413,7 +1414,7 @@ export class ThunderController {
   async openSessionLog(): Promise<void> {
     const logPath = this.sessionLog.getLogPath();
     if (!logPath) {
-      void vscode.window.showWarningMessage('Thunder: No session log yet. Send a message first.');
+      void vscode.window.showWarningMessage(brandMessage('No session log yet. Send a message first.'));
       return;
     }
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(logPath));
@@ -1527,7 +1528,7 @@ export class ThunderController {
     if (!this.toolExecutor || !fullInput) {
       log.warn('Approval missing full input', { id, tool: request.toolName });
       void vscode.window.showErrorMessage(
-        'Thunder: Could not apply change — approval data was missing. Please ask again in Act mode.'
+        brandMessage('Could not apply change — approval data was missing. Please ask again in Act mode.')
       );
       this.pushActivity('error', 'Approval failed — payload missing', request.files.join(', '));
       return;
@@ -1593,7 +1594,7 @@ export class ThunderController {
         });
       }
       void vscode.window.showInformationMessage(
-        request.toolName === 'run_command' ? 'Thunder: Command completed.' : `Thunder: Updated ${path ?? 'file'}`
+        request.toolName === 'run_command' ? brandMessage('Command completed.') : `${AGENT_NAME}: Updated ${path ?? 'file'}`
       );
       if (path) {
         const workspace = this.resolveWorkspacePath();
@@ -1604,7 +1605,7 @@ export class ThunderController {
       }
     } else {
       this.pushActivity('error', `Failed to apply ${path ?? request.toolName}`, result.error);
-      void vscode.window.showErrorMessage(`Thunder: ${result.error ?? 'Write failed'}`);
+      void vscode.window.showErrorMessage(`${AGENT_NAME}: ${result.error ?? 'Write failed'}`);
       if (request.toolCallId) {
         this.resumeApprovalResults.push({
           toolCallId: request.toolCallId,
@@ -1668,7 +1669,7 @@ export class ThunderController {
     });
 
     if (!result.ok) {
-      void vscode.window.showErrorMessage(`Thunder: ${result.message}`);
+      void vscode.window.showErrorMessage(`${AGENT_NAME}: ${result.message}`);
     }
   }
 
@@ -1697,7 +1698,7 @@ export class ThunderController {
     this.chatOrchestrator?.configure({ researchAgentProvider: this.researchAgentProvider });
     this.debouncedRebuildRetriever?.();
     this.notifyUi({ settings: (await this.buildUiState()).settings });
-    void vscode.window.showInformationMessage('Thunder: Provider settings saved.');
+    void vscode.window.showInformationMessage(brandMessage('Provider settings saved.'));
   }
 
   async saveAgentSettings(settings: import('../vscode/webview/messages').AgentSettingsPayload): Promise<void> {
@@ -1720,7 +1721,7 @@ export class ThunderController {
       researchAgentProvider: this.researchAgentProvider,
     });
     this.notifyUi({ settings: (await this.buildUiState()).settings });
-    void vscode.window.showInformationMessage('Thunder: Agent settings saved.');
+    void vscode.window.showInformationMessage(brandMessage('Agent settings saved.'));
   }
 
   async saveSafetySettings(settings: import('../vscode/webview/messages').SafetySettingsPayload): Promise<void> {
@@ -1729,7 +1730,7 @@ export class ThunderController {
     const effectiveSafety = applyAutonomyPreset(config.safety, config.safety.autonomyPreset);
     this.policyEngine?.updateSafetyConfig(effectiveSafety);
     this.notifyUi({ settings: (await this.buildUiState()).settings });
-    void vscode.window.showInformationMessage('Thunder: Approval mode saved.');
+    void vscode.window.showInformationMessage(brandMessage('Approval mode saved.'));
   }
 
   async saveMcpSettings(settings: import('../vscode/webview/messages').McpSettingsPayload): Promise<void> {
@@ -1737,7 +1738,7 @@ export class ThunderController {
     await this.reloadMcpServers();
     this.notifyUi({ settings: (await this.buildUiState()).settings });
     void vscode.window.showInformationMessage(
-      settings.enabled ? 'Thunder: MCP enabled.' : 'Thunder: MCP disabled.'
+      settings.enabled ? brandMessage('MCP enabled.') : brandMessage('MCP disabled.')
     );
   }
 
@@ -1783,7 +1784,7 @@ export class ThunderController {
     this.debouncedRebuildRetriever?.();
 
     this.notifyUi({ settings: (await this.buildUiState()).settings });
-    void vscode.window.showInformationMessage('Thunder: Settings saved.');
+    void vscode.window.showInformationMessage(brandMessage('Settings saved.'));
   }
 
   private async reloadMcpServers(): Promise<void> {
@@ -1802,7 +1803,7 @@ export class ThunderController {
   async restoreCheckpoint(id: string): Promise<boolean> {
     const ok = this.checkpointService?.restore(id) ?? false;
     if (ok) {
-      void vscode.window.showInformationMessage('Thunder: Checkpoint restored.');
+      void vscode.window.showInformationMessage(brandMessage('Checkpoint restored.'));
       this.notifyUi({
         checkpoints: (this.checkpointService?.list(this.session?.id) ?? []).map((c) => ({
           id: c.id, kind: c.kind, files: c.files, createdAt: c.createdAt,
@@ -1844,7 +1845,7 @@ export class ThunderController {
     const workspace = this.resolveWorkspacePath();
     if (!workspace) {
       this.setWorkspaceNotice('warn', 'Set a workspace path first (Browse or paste an absolute path).');
-      void vscode.window.showWarningMessage('Thunder: Set a workspace path in Settings before indexing.');
+      void vscode.window.showWarningMessage(brandMessage('Set a workspace path in Settings before indexing.'));
       return;
     }
 
@@ -1854,19 +1855,19 @@ export class ThunderController {
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         this.setWorkspaceNotice('error', `Index init failed: ${msg}`);
-        void vscode.window.showErrorMessage(`Thunder: Could not initialize index — ${msg}`);
+        void vscode.window.showErrorMessage(`${AGENT_NAME}: Could not initialize index — ${msg}`);
         return;
       }
     }
 
     const config = this.configService.getConfig();
     if (!config.indexing.enabled) {
-      void vscode.window.showInformationMessage('Thunder: Indexing is disabled in settings.');
+      void vscode.window.showInformationMessage(brandMessage('Indexing is disabled in settings.'));
       return;
     }
     if (!this.isWorkspaceTrusted()) {
       this.setWorkspaceNotice('warn', 'Indexing is disabled in untrusted workspace mode.');
-      void vscode.window.showWarningMessage('Thunder: Trust this workspace to enable indexing.');
+      void vscode.window.showWarningMessage(brandMessage('Trust this workspace to enable indexing.'));
       return;
     }
 
@@ -1874,7 +1875,7 @@ export class ThunderController {
     const files = discovery.discover();
 
     if (!this.scanner || !this.indexQueue) {
-      void vscode.window.showErrorMessage('Thunder: Index services not initialized.');
+      void vscode.window.showErrorMessage(brandMessage('Index services not initialized.'));
       return;
     }
 

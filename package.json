@@ -1,9 +1,9 @@
 {
   "name": "thunder-ai-agent",
-  "displayName": "Thunder AI Agent",
+  "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.6.3",
-  "publisher": "thunder",
+  "version": "2.6.4",
+  "publisher": "mitii",
   "license": "AGPL-3.0-or-later",
   "author": {
     "name": "codewithshinde",
@@ -16,7 +16,7 @@
   "bugs": {
     "url": "https://github.com/codewithshinde/thunder-ai-agent/issues"
   },
-  "homepage": "https://github.com/codewithshinde/thunder-ai-agent#readme",
+  "homepage": "https://mitii.dev",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -35,35 +35,35 @@
     "commands": [
       {
         "command": "thunder.openChat",
-        "title": "Thunder: Open Chat",
-        "category": "Thunder"
+        "title": "Mitii: Open Chat",
+        "category": "Mitii"
       },
       {
         "command": "thunder.indexWorkspace",
-        "title": "Thunder: Index Workspace",
-        "category": "Thunder"
+        "title": "Mitii: Index Workspace",
+        "category": "Mitii"
       },
       {
         "command": "thunder.showSettings",
-        "title": "Thunder: Show Settings",
-        "category": "Thunder"
+        "title": "Mitii: Show Settings",
+        "category": "Mitii"
       },
       {
         "command": "thunder.exportSessionLog",
-        "title": "Thunder: Export Session Log",
-        "category": "Thunder"
+        "title": "Mitii: Export Session Log",
+        "category": "Mitii"
       },
       {
         "command": "thunder.openSessionLog",
-        "title": "Thunder: Open Session Log File",
-        "category": "Thunder"
+        "title": "Mitii: Open Session Log File",
+        "category": "Mitii"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
           "id": "thunder",
-          "title": "Thunder",
+          "title": "Mitii",
           "icon": "media/thunder-icon.svg"
         }
       ]
@@ -73,12 +73,12 @@
         {
           "type": "webview",
           "id": "thunder.sidebar",
-          "name": "Thunder AI Agent"
+          "name": "Mitii AI Agent"
         }
       ]
     },
     "configuration": {
-      "title": "Thunder AI Agent",
+      "title": "Mitii AI Agent",
       "properties": {
         "thunder.debug": {
           "type": "boolean",
@@ -331,7 +331,7 @@
           "default": 4,
           "minimum": 1,
           "maximum": 20,
-          "description": "Maximum MCP stdio servers Thunder starts at the same time."
+          "description": "Maximum MCP stdio servers Mitii starts at the same time."
         },
         "thunder.mcp.servers": {
           "type": "object",
@@ -341,7 +341,7 @@
         "thunder.workspace.rootPathOverride": {
           "type": "string",
           "default": "",
-          "description": "Fallback workspace root when no VS Code folder is open. When a folder is open, Thunder always uses that folder and ignores this setting."
+          "description": "Fallback workspace root when no VS Code folder is open. When a folder is open, Mitii always uses that folder and ignores this setting."
         }
       }
     }

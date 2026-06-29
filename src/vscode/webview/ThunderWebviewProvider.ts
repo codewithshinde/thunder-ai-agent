@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ThunderController } from '../../core/ThunderController';
 import { createLogger } from '../../core/telemetry/Logger';
 import { normalizeError, formatUserError } from '../../core/telemetry/errors';
+import { AGENT_FULL_NAME, AGENT_NAME, brandMessage } from '../../shared/brand';
 import {
   type ExtensionToWebviewMessage,
   type WebviewToExtensionMessage,
@@ -326,7 +327,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         const markdown = formatChatHistoryMarkdown(this.state.messages);
         if (markdown) {
           await vscode.env.clipboard.writeText(markdown);
-          void vscode.window.setStatusBarMessage('Thunder: chat history copied as Markdown', 2500);
+          void vscode.window.setStatusBarMessage(brandMessage('chat history copied as Markdown'), 2500);
         }
         break;
       }
@@ -679,7 +680,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};">
   <link rel="stylesheet" href="${styleUri}">
-  <title>Thunder AI Agent</title>
+  <title>${AGENT_FULL_NAME}</title>
 </head>
 <body>
   <div id="root"></div>
@@ -694,7 +695,7 @@ function formatChatHistoryMarkdown(messages: ChatMessage[]): string {
   if (visible.length === 0) return '';
 
   const lines = [
-    '# Thunder Chat History',
+    `# ${AGENT_NAME} Chat History`,
     '',
     `Exported: ${new Date().toISOString()}`,
     '',
@@ -731,7 +732,7 @@ function getNonce(): string {
 function formatErrorHint(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes('database not open') || lower.includes('no workspace')) {
-    return '\n\nOpen a workspace folder or set a path in Thunder Settings → Workspace, then retry.';
+    return `\n\nOpen a workspace folder or set a path in ${AGENT_NAME} Settings → Workspace, then retry.`;
   }
   if (lower.includes('provider') || lower.includes('model') || lower.includes('connection') || lower.includes('api')) {
     return '\n\nUse Retry after fixing the provider/model, or switch models in Settings.';

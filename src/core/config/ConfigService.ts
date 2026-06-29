@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { AGENT_NAME } from '../../shared/brand';
 import { createLogger } from '../telemetry/Logger';
 import { readThunderConfigFromSettings } from './vscodeSettings';
 import {
@@ -109,7 +110,7 @@ export class ConfigService {
   async updateAllSettings(settings: ThunderSettingsPayload): Promise<void> {
     await updateAllSettings(settings);
     this.config = readThunderConfigFromSettings();
-    log.info('All Thunder settings updated');
+    log.info(`All ${AGENT_NAME} settings updated`);
   }
 
   async setWorkspaceOverride(path: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { AGENT_NAME } from '../../../shared/brand';
 import type {
   ApprovalMode,
   ContextToggles,
@@ -192,7 +193,7 @@ export function SettingsPanel({
         <div>
           <h2 className="settings-shell__title">Settings</h2>
           <p className="settings-shell__subtitle">
-            Configure Thunder for your workspace and model. Changes apply on save.
+            Configure {AGENT_NAME} for your workspace and model. Changes apply on save.
           </p>
         </div>
       </header>
@@ -233,7 +234,7 @@ export function SettingsPanel({
           <>
             <SettingsCard
               title="Provider"
-              description="Endpoint Thunder calls for chat completions and tool loops."
+              description={`Endpoint ${AGENT_NAME} calls for chat completions and tool loops.`}
             >
               <label className="settings-field">
                 <span className="settings-label">Provider type</span>
@@ -483,7 +484,7 @@ export function SettingsPanel({
 
             <SettingsCard title="Project rules" description="Automatically loaded from your workspace.">
               <p className="settings-inline-note">
-                Thunder reads <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.thunder/rules</code>,{' '}
+                {AGENT_NAME} reads <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.thunder/rules</code>,{' '}
                 <code>.clinerules</code>, and Continue/Cursor rule folders into context.
               </p>
               <p className="settings-inline-note">
@@ -496,7 +497,7 @@ export function SettingsPanel({
         {activeTab === 'safety' && (
           <SettingsCard
             title="Approval policy"
-            description="When Thunder pauses for review before edits or shell commands."
+            description={`When ${AGENT_NAME} pauses for review before edits or shell commands.`}
           >
             <label className="settings-field">
               <span className="settings-label">Approval mode</span>

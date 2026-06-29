@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { AgentActivityEntry, AgentLiveStatusView, ApprovalRequestView, ChatMessage } from '../../../vscode/webview/messages';
+import { AGENT_NAME } from '../../../shared/brand';
 import { MarkdownMessage } from './MarkdownMessage';
 import { AgentActivityPanel } from './AgentActivityPanel';
 import { useStreamReveal } from '../hooks/useStreamReveal';
@@ -27,7 +28,7 @@ export function MessageList({ messages, loading, agentActivity = [], agentLiveSt
   if (messages.length === 0) {
     return (
       <div className="empty-chat">
-        <p className="empty-title">Thunder</p>
+        <p className="empty-title">{AGENT_NAME}</p>
         <p className="empty-subtitle">Ask about your codebase. Plan, review, or apply changes.</p>
       </div>
     );
