@@ -4,7 +4,6 @@ import { useVsCodeMessaging } from './state/useVsCodeMessaging';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
 import { ContextPanel } from './components/ContextPanel';
-import { ContextDebuggerPanel } from './components/ContextDebuggerPanel';
 import { ContextWarningBanner } from './components/ContextWarningBanner';
 import { ErrorBanner } from './components/ErrorBanner';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -15,6 +14,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { PlanPanel } from './components/PlanPanel';
 import { IconButton } from './components/IconButton';
 import { IconChat, IconHistory, IconPlus, IconSettings } from './components/Icons';
+import { deriveSafetySettings } from './utils/approvalMode';
 
 export function App() {
   const { state, postMessage, pathSuggestions, pathSearchRequestId } = useVsCodeMessaging();
@@ -120,15 +120,6 @@ export function App() {
             onClear={() => postMessage({ type: 'clearPinnedContext' })}
             onPick={() => postMessage({ type: 'pickContextPath' })}
           />
-          <ContextDebuggerPanel
-            budget={state.contextBudget}
-            items={state.contextPreview}
-            totalTokens={state.contextTokenEstimate}
-            lastRequestTokens={state.tokenUsage.lastCallInputTokens || state.tokenUsage.lastPromptTokens}
-            contextWindow={state.tokenUsage.contextWindow}
-            expanded={state.showContextPreview}
-            onToggle={() => postMessage({ type: 'toggleContextPreview' })}
-          />
           <div className="chat-body">
             <MessageList
               messages={state.messages}
@@ -142,6 +133,7 @@ export function App() {
             <ChatInput
               loading={state.loading}
               mode={state.mode}
+              approvalMode={state.settings.approvalMode}
               tokenUsage={state.tokenUsage}
               pinnedContext={state.pinnedContext}
               canRetry={canRetry}
@@ -150,6 +142,12 @@ export function App() {
               }
               onStop={() => postMessage({ type: 'stopGeneration' })}
               onModeChange={(mode) => postMessage({ type: 'setMode', payload: mode })}
+              onApprovalModeChange={(approvalMode) =>
+                postMessage({
+                  type: 'saveSafetySettings',
+                  payload: deriveSafetySettings(approvalMode),
+                })
+              }
               onRetry={() => postMessage({ type: 'retryLastMessage' })}
               onCopyResponse={() => postMessage({ type: 'copyLastResponse' })}
               onCopyChatHistory={() => postMessage({ type: 'copyChatHistoryMarkdown' })}
@@ -195,6 +193,9 @@ export function App() {
             onIndex={() => postMessage({ type: 'indexWorkspace' })}
             onToggleContext={(source, enabled) =>
               postMessage({ type: 'toggleContextSource', payload: { source, enabled } })
+            }
+            onSaveProviderSettings={(payload) =>
+              postMessage({ type: 'saveProviderSettings', payload })
             }
           />
         </main>

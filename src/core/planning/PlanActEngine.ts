@@ -1,3 +1,5 @@
+import { normalizeThunderMode } from '../ThunderSession';
+
 export type ThunderPlan = {
   goal: string;
   assumptions: string[];
@@ -89,7 +91,7 @@ export function parsePlanFromText(text: string): ThunderPlan | null {
 }
 
 export function isWriteAllowed(mode: string): boolean {
-  return mode === 'act';
+  return normalizeThunderMode(mode) === 'agent';
 }
 
 /** Shell commands that only inspect the repo (allowed in plan/review for audits). */
@@ -185,13 +187,13 @@ export function stripLeadingCd(command: string): string {
 }
 
 export function isShellAllowed(mode: string, command?: string): boolean {
-  if (mode === 'act') return true;
+  if (normalizeThunderMode(mode) === 'agent') return true;
   if (command && isReadOnlyCommand(command)) return true;
   return false;
 }
 
 export function isPatchAllowed(mode: string): boolean {
-  return mode === 'act';
+  return normalizeThunderMode(mode) === 'agent';
 }
 
 export function inferStepPhase(title: string, index: number): PlanPhase {
@@ -227,7 +229,7 @@ export function stepImpliesWrite(step: {
   return false;
 }
 
-/** Resolve the effective phase lock for a plan step (Act mode upgrades write steps stuck in diagnostics). */
+/** Resolve the effective phase lock for a plan step (Agent mode upgrades write steps stuck in diagnostics). */
 export function resolveStepPhaseLock(
   step: {
     title: string;
@@ -239,7 +241,7 @@ export function resolveStepPhaseLock(
   mode: string
 ): PlanPhase | undefined {
   const declared = step.phase ?? inferStepPhase(step.title, 0);
-  if (mode !== 'act') return declared;
+  if (normalizeThunderMode(mode) !== 'agent') return declared;
   if (
     stepImpliesWrite(step) &&
     (declared === 'diagnostics' || declared === 'review')

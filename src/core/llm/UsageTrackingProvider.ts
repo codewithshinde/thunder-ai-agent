@@ -1,5 +1,9 @@
+import { fitChatRequestToBudget, getMaxInputTokens } from '../agent/PromptBudget';
 import type { ChatDelta, ChatRequest, LlmProvider, ModelCapabilities } from './types';
 import { estimateTokens } from './tokenEstimate';
+import { createLogger } from '../telemetry/Logger';
+
+const log = createLogger('UsageTrackingProvider');
 
 export interface ModelCallUsage {
   providerId: string;
@@ -24,11 +28,22 @@ export class UsageTrackingProvider implements LlmProvider {
   }
 
   async *complete(request: ChatRequest): AsyncIterable<ChatDelta> {
-    const inputTokens = estimateChatRequestTokens(request);
+    const maxInputTokens = getMaxInputTokens(this.capabilities.contextWindow);
+    const fitted = fitChatRequestToBudget(request, maxInputTokens);
+    if (fitted.trimmed) {
+      log.warn('Prompt trimmed to fit context window', {
+        contextWindow: this.capabilities.contextWindow,
+        maxInputTokens,
+        beforeTokens: fitted.beforeTokens,
+        afterTokens: fitted.afterTokens,
+      });
+    }
+
+    const inputTokens = fitted.afterTokens;
     let outputText = '';
 
     try {
-      for await (const delta of this.inner.complete(request)) {
+      for await (const delta of this.inner.complete(fitted.request)) {
         if (delta.content) {
           outputText += delta.content;
         }

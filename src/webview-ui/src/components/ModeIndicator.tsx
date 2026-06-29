@@ -6,8 +6,9 @@ interface ModeIndicatorProps {
 }
 
 const MODES: { id: ThunderMode; label: string; description: string }[] = [
+  { id: 'ask', label: 'Ask', description: 'Explore and answer — read-only' },
   { id: 'plan', label: 'Plan', description: 'Analyze and propose — no writes' },
-  { id: 'act', label: 'Act', description: 'Execute with approval' },
+  { id: 'agent', label: 'Agent', description: 'Execute with approval' },
   { id: 'review', label: 'Review', description: 'Inspect diffs and tests' },
 ];
 

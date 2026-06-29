@@ -61,6 +61,17 @@ export function analyzeTask(userMessage: string, mode: string): TaskAnalysis {
   }
 
   const classified = classifyTask(taskText);
+  if (mode === 'ask') {
+    return {
+      kind: classified.kind === 'question' ? 'question' : 'question',
+      complexity: 'low',
+      shouldPlan: false,
+      shouldVerify: false,
+      shouldUseSubagents: false,
+      summary: 'Ask mode — explore with read-only tools and answer directly.',
+    };
+  }
+
   if (mode === 'plan') {
     return {
       ...classified,
@@ -70,14 +81,14 @@ export function analyzeTask(userMessage: string, mode: string): TaskAnalysis {
     };
   }
 
-  if (mode !== 'act') {
+  if (mode !== 'agent') {
     return {
       kind: 'question',
       complexity: 'low',
       shouldPlan: false,
       shouldVerify: false,
       shouldUseSubagents: false,
-      summary: 'Non-act mode — respond without execution.',
+      summary: 'Non-agent mode — respond without execution.',
     };
   }
 

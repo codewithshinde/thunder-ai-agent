@@ -244,6 +244,10 @@ body,
   background: var(--thunder-accent);
 }
 
+.token-popover__fill--over {
+  background: #f87171;
+}
+
 .token-popover__segments {
   display: flex;
   gap: 2px;
@@ -380,6 +384,37 @@ body,
   );
 }
 
+.plan-panel__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.plan-panel__toggle--header {
+  margin-bottom: 8px;
+}
+
+.plan-panel__toggle:hover .plan-panel__chevron {
+  color: var(--thunder-fg);
+}
+
+.plan-panel__chevron {
+  flex: 0 0 auto;
+  width: 14px;
+  margin-top: 2px;
+  color: var(--thunder-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
 .plan-panel--planning {
   animation: planPulse 2s ease-in-out infinite;
 }
@@ -445,10 +480,12 @@ body,
 
 .plan-panel__header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
 }
 
 .plan-panel__eyebrow {
@@ -852,6 +889,12 @@ body,
   font-weight: 600;
   font-family: var(--thunder-font);
   cursor: pointer;
+  max-width: 88px;
+}
+
+.composer__approval-select {
+  max-width: 92px;
+  color: var(--thunder-muted);
 }
 
 .composer__mode-select:focus {

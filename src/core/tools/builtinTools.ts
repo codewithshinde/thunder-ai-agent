@@ -684,11 +684,11 @@ export function createRunCommandTool(workspace: string, getMode: () => string): 
         return { success: false, output: '', error: 'Dangerous command blocked' };
       }
       const mode = getMode();
-      if (mode !== 'act' && !isReadOnlyCommand(input.command)) {
+      if (mode !== 'agent' && !isReadOnlyCommand(input.command)) {
         return {
           success: false,
           output: '',
-          error: 'Only read-only inspection commands are allowed in Plan/Review mode',
+          error: 'Only read-only inspection commands are allowed in Ask/Plan/Review mode',
         };
       }
       try {

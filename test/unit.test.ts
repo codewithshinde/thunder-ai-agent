@@ -486,13 +486,32 @@ describe('Plan/Act task analysis', () => {
     expect(analysis.summary).toContain('Plan mode');
   });
 
-  it('plans and verifies actionable requests in act mode', async () => {
+  it('plans and verifies actionable requests in agent mode', async () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
-    const analysis = analyzeTask('Implement a solid planning mode and separate act mode', 'act');
+    const analysis = analyzeTask('Implement a solid planning mode and separate act mode', 'agent');
 
     expect(analysis.kind).toBe('implementation');
     expect(analysis.shouldPlan).toBe(true);
     expect(analysis.shouldVerify).toBe(true);
+  });
+
+  it('treats ask mode as read-only question answering', async () => {
+    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const analysis = analyzeTask('implement auth and add tests for all routes', 'ask');
+
+    expect(analysis.kind).toBe('question');
+    expect(analysis.shouldPlan).toBe(false);
+    expect(analysis.shouldVerify).toBe(false);
+    expect(analysis.summary).toContain('Ask mode');
+  });
+});
+
+describe('ThunderMode normalization', () => {
+  it('maps legacy act to agent', async () => {
+    const { normalizeThunderMode } = await import('../src/core/ThunderSession');
+    expect(normalizeThunderMode('act')).toBe('agent');
+    expect(normalizeThunderMode('ask')).toBe('ask');
+    expect(normalizeThunderMode('unknown')).toBe('plan');
   });
 });
 
@@ -575,7 +594,7 @@ describe('Plan parser', () => {
     const executor = new PlanExecutor({} as never, { save: () => 'plan-id' } as never);
 
     const planMode = await executor.generatePlan(provider, 'plan', pack, 'fix bug');
-    const actMode = await executor.generatePlan(provider, 'act', pack, 'fix bug');
+    const actMode = await executor.generatePlan(provider, 'agent', pack, 'fix bug');
 
     expect(planMode?.steps[0].phase).toBe('diagnostics');
     expect(actMode?.steps[0].phase).toBe('execute');
@@ -625,7 +644,7 @@ describe('Plan parser', () => {
     let output = '';
 
     for await (const chunk of executor.executePlan(
-      { id: 's1', mode: 'act' } as never,
+      { id: 's1', mode: 'agent' } as never,
       {} as never,
       plan,
       pack,
@@ -686,7 +705,7 @@ describe('Plan parser', () => {
     };
 
     for await (const _chunk of executor.executePlan(
-      { id: 's1', mode: 'act' } as never,
+      { id: 's1', mode: 'agent' } as never,
       {} as never,
       plan,
       pack,
@@ -802,30 +821,30 @@ describe('shouldDecomposeTask', () => {
   it('decomposes implementation tasks and explicit plan requests in act mode', async () => {
     const { shouldDecomposeTask } = await import('../src/core/agent/TaskAnalyzer');
     expect(
-      shouldDecomposeTask('implement auth and then add tests step by step for all routes', 'act')
+      shouldDecomposeTask('implement auth and then add tests step by step for all routes', 'agent')
     ).toBe(true);
-    expect(shouldDecomposeTask('implement auth and then add tests for all routes', 'act')).toBe(true);
+    expect(shouldDecomposeTask('implement auth and then add tests for all routes', 'agent')).toBe(true);
     expect(
-      shouldDecomposeTask('identify and remove unused files and dependencies in the whole project', 'act')
+      shouldDecomposeTask('identify and remove unused files and dependencies in the whole project', 'agent')
     ).toBe(true);
     expect(shouldDecomposeTask('implement auth and then add tests', 'plan')).toBe(true);
-    expect(shouldDecomposeTask('hi', 'act')).toBe(false);
-    expect(shouldDecomposeTask('what does this project do?', 'act')).toBe(false);
+    expect(shouldDecomposeTask('hi', 'agent')).toBe(false);
+    expect(shouldDecomposeTask('what does this project do?', 'agent')).toBe(false);
   });
 });
 
 describe('TaskAnalyzer', () => {
   it('classifies task kinds', async () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
-    const audit = analyzeTask('find unused dependencies and clean up dead code', 'act');
+    const audit = analyzeTask('find unused dependencies and clean up dead code', 'agent');
     expect(audit.kind).toBe('audit');
     expect(audit.shouldPlan).toBe(true);
 
-    const question = analyzeTask('how does authentication work?', 'act');
+    const question = analyzeTask('how does authentication work?', 'agent');
     expect(question.kind).toBe('question');
     expect(question.shouldPlan).toBe(false);
 
-    const impl = analyzeTask('implement login and then add tests for the auth module', 'act');
+    const impl = analyzeTask('implement login and then add tests for the auth module', 'agent');
     expect(impl.kind).toBe('implementation');
     expect(impl.shouldPlan).toBe(true);
     expect(impl.shouldVerify).toBe(true);
@@ -835,7 +854,7 @@ describe('TaskAnalyzer', () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
     const result = analyzeTask(
       '@src/utils/kitchen-status.ts Can you imporve the Ui and UX of this file and also its child compoenents, cards and all',
-      'act'
+      'agent'
     );
 
     expect(result.kind).toBe('implementation');
@@ -845,7 +864,7 @@ describe('TaskAnalyzer', () => {
 
   it('treats short product/action trigger words as implementation work', async () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
-    const result = analyzeTask('need animated enterprise landing page UI', 'act');
+    const result = analyzeTask('need animated enterprise landing page UI', 'agent');
 
     expect(result.kind).toBe('implementation');
     expect(result.shouldPlan).toBe(true);
@@ -854,7 +873,7 @@ describe('TaskAnalyzer', () => {
 
   it('plans broad documentation feature work', async () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
-    const result = analyzeTask('add docs for all ffb-mui features', 'act');
+    const result = analyzeTask('add docs for all ffb-mui features', 'agent');
 
     expect(result.kind).toBe('implementation');
     expect(result.complexity).toBe('medium');
@@ -911,7 +930,7 @@ describe('taskKind', () => {
 describe('TaskAnalyzer', () => {
   it('does not re-plan approval continuations', async () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
-    const result = analyzeTask('Continue the current approved task from where it paused.\nOriginal user request: refactor app', 'act');
+    const result = analyzeTask('Continue the current approved task from where it paused.\nOriginal user request: refactor app', 'agent');
     expect(result.shouldPlan).toBe(false);
     expect(result.summary).toContain('resume');
   });
@@ -920,7 +939,7 @@ describe('TaskAnalyzer', () => {
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
     const result = analyzeTask(
       'Can you remove all the unsed imports and files and dependencies from the entire porject',
-      'act'
+      'agent'
     );
     expect(result.kind).toBe('audit');
     expect(result.shouldPlan).toBe(true);
@@ -973,10 +992,10 @@ describe('shouldUsePlanner', () => {
   it('skips planner for audit tasks in act mode', async () => {
     const { shouldUsePlanner } = await import('../src/core/ChatOrchestrator');
     const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
-    const analysis = analyzeTask('remove unused imports and dependencies', 'act');
+    const analysis = analyzeTask('remove unused imports and dependencies', 'agent');
     expect(analysis.kind).toBe('audit');
-    expect(shouldUsePlanner('act', analysis, true, true)).toBe(false);
-    expect(shouldUsePlanner('act', analysis, true, false)).toBe(true);
+    expect(shouldUsePlanner('agent', analysis, true, true)).toBe(false);
+    expect(shouldUsePlanner('agent', analysis, true, false)).toBe(true);
     expect(shouldUsePlanner('plan', analysis, true, true)).toBe(true);
   });
 });
@@ -1061,26 +1080,28 @@ describe('PlanActEngine read-only shell', () => {
     expect(isReadOnlyCommand('npx vitest')).toBe(false);
     expect(stripLeadingCd('cd /home/user && npm ls')).toBe('npm ls');
     expect(isShellAllowed('plan', 'npx depcheck')).toBe(true);
+    expect(isShellAllowed('ask', 'npx depcheck')).toBe(true);
     expect(isShellAllowed('plan', 'npm install lodash')).toBe(false);
+    expect(isShellAllowed('ask', 'npm install lodash')).toBe(false);
     expect(isToolAllowedInPlanPhase('execute', 'run_command', { command: 'npm run build' }).allowed).toBe(true);
     expect(isToolAllowedInPlanPhase('verify', 'run_command', { command: 'npm run build' }).allowed).toBe(true);
     expect(isToolAllowedInPlanPhase('verify', 'run_command', { command: 'node scripts/custom-mutator.js' }).allowed).toBe(false);
   });
 
-  it('upgrades write-intent steps from diagnostics to execute in act mode', async () => {
+  it('upgrades write-intent steps from diagnostics to execute in agent mode', async () => {
     const { resolveStepPhaseLock, stepImpliesWrite } = await import('../src/core/planning/PlanActEngine');
     expect(stepImpliesWrite({ title: 'Audit Current Implementation & Identify Bugs' })).toBe(false);
     expect(stepImpliesWrite({ title: 'Fix ReferenceError & Prepare Theme Utilities' })).toBe(true);
     expect(
       resolveStepPhaseLock(
         { title: 'Fix ReferenceError & Prepare Theme Utilities', phase: 'diagnostics' },
-        'act'
+        'agent'
       )
     ).toBe('execute');
     expect(
       resolveStepPhaseLock(
         { title: 'Audit Current Implementation & Identify Bugs', phase: 'diagnostics' },
-        'act'
+        'agent'
       )
     ).toBe('diagnostics');
     expect(stepImpliesWrite({
@@ -1285,8 +1306,8 @@ describe('SessionLogService', () => {
     const workspace = join(dir, 'ws');
     const log = new SessionLogService();
     log.configure(workspace, 'sess-1', true);
-    log.writeSessionHeader({ mode: 'act' });
-    log.append('user_message', 'hello', { mode: 'act' });
+    log.writeSessionHeader({ mode: 'agent' });
+    log.append('user_message', 'hello', { mode: 'agent' });
     log.append('tool_start', 'read_file', { input: { path: 'package.json' } });
 
     const path = log.getLogPath();
@@ -1431,7 +1452,7 @@ src/screens/kitchen-screen/components/DineInKanban.tsx
   1 | // BEFORE (crashed)
 > 2 | '&::-webkit-scrollbar-thumb': (t) => ({`;
 
-    const analysis = analyzeTask(message, 'act');
+    const analysis = analyzeTask(message, 'agent');
     expect(analysis.kind).toBe('simple_edit');
     expect(analysis.shouldPlan).toBe(false);
     expect(analysis.summary).toContain('DineInKanban.tsx');
@@ -1531,7 +1552,7 @@ describe('run_command exit codes', () => {
 
     const dir = mkdtempSync(join(tmpdir(), 'thunder-cmd-'));
     try {
-      const tool = createRunCommandTool(dir, () => 'act');
+      const tool = createRunCommandTool(dir, () => 'agent');
       const grep = await tool.execute({ command: 'grep -r "__definitely_missing_pattern_xyz__" .' });
       expect(grep.success).toBe(true);
 

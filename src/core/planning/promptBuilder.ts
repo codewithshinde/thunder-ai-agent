@@ -25,7 +25,7 @@ TOOLS: You have tools to read files, search code, run commands, write files, and
 - Use ask_question when a key decision is ambiguous — provide 2-5 options to reduce wrong-direction work.
 - Use fetch_web for external docs, API references, or debugging when local context is insufficient.
 - Use mark_step_complete when finishing a plan step; use propose_plan_mutation if you hit a major roadblock.
-- In Act mode, you may call write_file/apply_patch/run_command tools directly.
+- In Agent mode, you may call write_file/apply_patch/run_command tools directly.
 - If a tool returns "awaiting approval", stop and inform the user.
 - NEVER say "I will search…" without calling tools in the same turn.`;
 
@@ -65,12 +65,16 @@ export function buildSystemPrompt(
   isContinuation = false
 ): string {
   const modeInstructions: Record<ThunderMode, string> = {
+    ask: `You are in ASK mode. Answer questions about the codebase using read-only exploration.
+- Use read_file, read_files, search, list_files, and read-only run_command to investigate before answering.
+- Give direct, well-structured answers with file path citations when referencing code.
+- Do NOT edit files, run mutating shell commands, or implement changes — suggest switching to Agent mode if the user wants edits.`,
     plan: `You are in PLAN mode. Analyze the codebase and give a direct answer.
 - Start with a 1-2 sentence summary of your recommendation.
 - Use bullet points for steps. Be specific with file paths from context.
 - Do NOT write files — propose what to change and where.
 - For complex tasks, output a JSON plan block (see format below).`,
-    act: `You are in ACT mode. Implement changes using tools and/or CODE_EDIT_BLOCK format.
+    agent: `You are in AGENT mode. Implement changes using tools and/or CODE_EDIT_BLOCK format.
 
 ${STATE_MACHINE_GUIDANCE}
 ${CHAT_HISTORY_GUIDANCE}
@@ -161,7 +165,7 @@ export function buildPrompt(
     : '';
 
   const auditBootstrap =
-    auditMode && mode === 'act' && !isContinuation
+    auditMode && mode === 'agent' && !isContinuation
       ? `\n\n${buildAuditBootstrapBlock()}\n`
       : '';
 

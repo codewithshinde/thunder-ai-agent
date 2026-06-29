@@ -251,7 +251,7 @@ export class PlanExecutor {
         let pendingApproval = false;
         const phaseLock = resolveStepPhaseLock(step, session.mode);
         const explicitToolCall = getExplicitStepToolCall(step);
-        const writeExpected = stepImpliesWrite(step) && session.mode === 'act' && !explicitToolCall;
+        const writeExpected = stepImpliesWrite(step) && session.mode === 'agent' && !explicitToolCall;
 
         if (explicitToolCall && this.toolExecutor) {
           const toolStartedAt = Date.now();

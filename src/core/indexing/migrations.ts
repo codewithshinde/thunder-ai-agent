@@ -300,6 +300,13 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 15,
+    name: 'rename_act_mode_to_agent',
+    up: (db) => {
+      db.raw.exec(`UPDATE agent_sessions SET mode = 'agent' WHERE mode = 'act';`);
+    },
+  },
 ];
 
 export class MigrationRunner {

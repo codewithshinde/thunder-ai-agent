@@ -1,6 +1,7 @@
 import { useState, useCallback, type KeyboardEvent, useRef, useEffect } from 'react';
 import type { ThunderMode } from '../../../core/ThunderSession';
 import type {
+  ApprovalMode,
   ContextPathSuggestion,
   PinnedContextView,
   TokenUsageView,
@@ -8,16 +9,19 @@ import type {
 import { IconButton } from './IconButton';
 import { IconChevronDown, IconCopy, IconMarkdown, IconRetry, IconSend, IconStop } from './Icons';
 import { TokenMeter } from './TokenMeter';
+import { APPROVAL_MODE_OPTIONS, deriveSafetySettings } from '../utils/approvalMode';
 
 interface ChatInputProps {
   loading: boolean;
   mode: ThunderMode;
+  approvalMode: ApprovalMode;
   tokenUsage: TokenUsageView;
   pinnedContext: PinnedContextView[];
   canRetry: boolean;
   onSend: (content: string, pinnedContext: PinnedContextView[]) => void;
   onStop?: () => void;
   onModeChange: (mode: ThunderMode) => void;
+  onApprovalModeChange: (mode: ApprovalMode) => void;
   onRetry?: () => void;
   onCopyResponse?: () => void;
   onCopyChatHistory?: () => void;
@@ -29,20 +33,23 @@ interface ChatInputProps {
 }
 
 const MODES: { id: ThunderMode; label: string; description: string }[] = [
+  { id: 'ask', label: 'Ask', description: 'Explore and answer questions (read-only)' },
   { id: 'plan', label: 'Plan', description: 'Analyze and propose steps' },
-  { id: 'act', label: 'Act', description: 'Apply code changes' },
+  { id: 'agent', label: 'Agent', description: 'Apply code changes' },
   { id: 'review', label: 'Review', description: 'Inspect code and risks' },
 ];
 
 export function ChatInput({
   loading,
   mode,
+  approvalMode,
   tokenUsage,
   pinnedContext,
   canRetry,
   onSend,
   onStop,
   onModeChange,
+  onApprovalModeChange,
   onRetry,
   onCopyResponse,
   onCopyChatHistory,
@@ -60,6 +67,8 @@ export function ChatInput({
   const [searchRequestId, setSearchRequestId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const activeMode = MODES.find((m) => m.id === mode) ?? MODES[0];
+  const activeApproval =
+    APPROVAL_MODE_OPTIONS.find((option) => option.id === approvalMode) ?? APPROVAL_MODE_OPTIONS[0];
 
   useEffect(() => {
     if (!searchRequestId || searchRequestId !== pathSearchRequestId) return;
@@ -211,6 +220,22 @@ export function ChatInput({
                 {MODES.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.label}
+                  </option>
+                ))}
+              </select>
+              <IconChevronDown className="composer__mode-chevron" width={12} height={12} aria-hidden />
+            </div>
+            <div className="composer__mode-select-wrap">
+              <select
+                className="composer__mode-select composer__approval-select"
+                value={approvalMode}
+                onChange={(e) => onApprovalModeChange(e.target.value as ApprovalMode)}
+                aria-label="Approval policy"
+                title={activeApproval.title}
+              >
+                {APPROVAL_MODE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
                   </option>
                 ))}
               </select>

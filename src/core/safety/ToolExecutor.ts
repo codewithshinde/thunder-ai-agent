@@ -83,14 +83,14 @@ export class ToolExecutor {
       return { success: true, output };
     }
 
-    if (['write_file', 'apply_patch'].includes(toolName) && !isWriteAllowed(mode)) {
-      return this.finishBlocked(toolName, input, 'Writes blocked in Plan/Review mode');
+    if (['write_file', 'apply_patch', 'memory_write', 'save_task_state'].includes(toolName) && !isWriteAllowed(mode)) {
+      return this.finishBlocked(toolName, input, 'Writes blocked in Ask/Plan/Review mode');
     }
     if (toolName === 'apply_patch' && !isPatchAllowed(mode)) {
-      return this.finishBlocked(toolName, input, 'Patch apply blocked in Plan/Review mode');
+      return this.finishBlocked(toolName, input, 'Patch apply blocked in Ask/Plan/Review mode');
     }
     if (toolName === 'run_command' && !isShellAllowed(mode, typeof input.command === 'string' ? input.command : undefined)) {
-      return this.finishBlocked(toolName, input, 'Shell blocked in Plan/Review mode (read-only commands like depcheck/grep are allowed)');
+      return this.finishBlocked(toolName, input, 'Shell blocked in Ask/Plan/Review mode (read-only commands like depcheck/grep are allowed)');
     }
 
     const sessionId = this.getSessionId();

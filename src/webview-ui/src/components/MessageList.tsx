@@ -29,7 +29,7 @@ export function MessageList({ messages, loading, agentActivity = [], agentLiveSt
     return (
       <div className="empty-chat">
         <p className="empty-title">{AGENT_NAME}</p>
-        <p className="empty-subtitle">Ask about your codebase. Plan, review, or apply changes.</p>
+        <p className="empty-subtitle">Ask about your codebase. Plan, review, or apply changes in Agent mode.</p>
       </div>
     );
   }

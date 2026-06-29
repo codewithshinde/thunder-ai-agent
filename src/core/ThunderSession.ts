@@ -1,6 +1,18 @@
 import { randomUUID } from 'crypto';
 
-export type ThunderMode = 'plan' | 'act' | 'review';
+export type ThunderMode = 'ask' | 'plan' | 'agent' | 'review';
+
+/** Map legacy persisted values and unknown strings to a valid mode. */
+export function normalizeThunderMode(mode: string): ThunderMode {
+  if (mode === 'act') return 'agent';
+  if (mode === 'ask' || mode === 'plan' || mode === 'agent' || mode === 'review') return mode;
+  return 'plan';
+}
+
+export function isReadOnlyThunderMode(mode: string): boolean {
+  const normalized = normalizeThunderMode(mode);
+  return normalized === 'ask' || normalized === 'plan' || normalized === 'review';
+}
 
 export interface ThunderSessionState {
   id: string;
@@ -22,7 +34,7 @@ export class ThunderSession {
   constructor(workspace: string, mode: ThunderMode = 'plan') {
     this.id = randomUUID();
     this.workspace = workspace;
-    this.mode = mode;
+    this.mode = normalizeThunderMode(mode);
     this.title = null;
     this.createdAt = Date.now();
     this.updatedAt = this.createdAt;
@@ -33,7 +45,7 @@ export class ThunderSession {
   }
 
   setMode(mode: ThunderMode): void {
-    this.mode = mode;
+    this.mode = normalizeThunderMode(mode);
     this.touch();
   }
 

@@ -13,6 +13,11 @@ import { WorkspaceSettingsSection } from './WorkspaceSettingsSection';
 import { SettingsCard } from './SettingsCard';
 import { SettingSwitch } from './SettingSwitch';
 import { SettingStepper } from './SettingStepper';
+import {
+  APPROVAL_MODE_OPTIONS,
+  approvalModeDescription,
+  deriveSafetySettings,
+} from '../utils/approvalMode';
 
 type SettingsTab = 'workspace' | 'model' | 'agent' | 'context' | 'integrations' | 'safety' | 'debug';
 
@@ -78,6 +83,7 @@ interface SettingsPanelProps {
   onClearWorkspaceOverride: () => void;
   onIndex: () => void;
   onToggleContext: (source: keyof ContextToggles, enabled: boolean) => void;
+  onSaveProviderSettings: (settings: ProviderSettingsPayload) => void;
 }
 
 export function SettingsPanel({
@@ -100,6 +106,7 @@ export function SettingsPanel({
   onClearWorkspaceOverride,
   onIndex,
   onToggleContext,
+  onSaveProviderSettings,
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('workspace');
   const [apiKey, setApiKey] = useState('');
@@ -144,6 +151,9 @@ export function SettingsPanel({
   }, [settings]);
 
   const markDirty = useCallback(() => setDirty(true), []);
+
+  const clampContextWindow = (value: number) =>
+    Math.max(1024, Math.min(Number.isFinite(value) ? Math.floor(value) : 1024, 1_000_000));
 
   const buildPayload = (): ThunderSettingsPayload | null => {
     if (!baseUrl.trim() || !model.trim() || contextWindow < 1024) {
@@ -192,6 +202,40 @@ export function SettingsPanel({
     model: model.trim(),
     contextWindow,
   });
+
+  const persistContextWindow = (value: number) => {
+    const next = clampContextWindow(value);
+    setContextWindow(next);
+    onSaveProviderSettings({
+      ...currentProviderSettings(),
+      contextWindow: next,
+    });
+  };
+
+  const contextWindowField = (
+    <label className="settings-field">
+      <span className="settings-label">Context window (tokens)</span>
+      <input
+        type="number"
+        className="settings-input"
+        min={1024}
+        max={1_000_000}
+        step={1}
+        value={contextWindow}
+        onChange={(e) => {
+          const parsed = Number(e.target.value);
+          if (Number.isFinite(parsed)) {
+            setContextWindow(parsed);
+            markDirty();
+          }
+        }}
+        onBlur={(e) => persistContextWindow(Number(e.target.value))}
+      />
+      <span className="settings-hint">
+        Hard cap per model request. Prompts trim automatically when over budget (min 1024).
+      </span>
+    </label>
+  );
 
   const isLocalProvider = providerType === 'openai-compatible';
   const showSaveBar = activeTab !== 'workspace' && activeTab !== 'context';
@@ -293,25 +337,17 @@ export function SettingsPanel({
                     />
                   </label>
 
-                  <SettingStepper
-                    label="Context window"
-                    description="Token budget for codebase context per request."
-                    value={contextWindow}
-                    min={1024}
-                    max={128000}
-                    step={1024}
-                    onChange={(v) => {
-                      setContextWindow(v);
-                      markDirty();
-                    }}
-                  />
+                  {contextWindowField}
                 </>
               )}
 
               {providerType === 'echo' && (
-                <p className="settings-inline-note">
-                  Echo mode repeats your message — useful to verify workspace, indexing, and UI without a model.
-                </p>
+                <>
+                  <p className="settings-inline-note">
+                    Echo mode repeats your message — useful to verify workspace, indexing, and UI without a model.
+                  </p>
+                  {contextWindowField}
+                </>
               )}
 
               <div className="settings-inline-actions">
@@ -421,10 +457,18 @@ export function SettingsPanel({
         )}
 
         {activeTab === 'context' && (
-          <SettingsCard
-            title="Context sources"
-            description="Mixed into the prompt before the model runs. Toggles apply immediately."
-          >
+          <>
+            <SettingsCard
+              title="Context window"
+              description="Set your model's context limit. Thunder trims prompts to stay within this budget."
+            >
+              {contextWindowField}
+            </SettingsCard>
+
+            <SettingsCard
+              title="Context sources"
+              description="Mixed into the prompt before the model runs. Toggles apply immediately."
+            >
             {CONTEXT_TOGGLES.map(({ key, label, description }) => (
               <SettingSwitch
                 key={key}
@@ -434,7 +478,8 @@ export function SettingsPanel({
                 onChange={(enabled) => onToggleContext(key, enabled)}
               />
             ))}
-          </SettingsCard>
+            </SettingsCard>
+          </>
         )}
 
         {activeTab === 'integrations' && (
@@ -521,11 +566,11 @@ export function SettingsPanel({
                   markDirty();
                 }}
               >
-                <option value="review_all">Ask before edits and commands</option>
-                <option value="ask_edits">Ask before edits</option>
-                <option value="ask_deletes">Ask before deletes</option>
-                <option value="ask_commands">Ask before commands</option>
-                <option value="auto">Auto approve allowed operations</option>
+                {APPROVAL_MODE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
               <span className="settings-hint">{approvalModeDescription(approvalMode)}</span>
             </label>
@@ -589,34 +634,4 @@ export function SettingsPanel({
       )}
     </div>
   );
-}
-
-function deriveSafetySettings(approvalMode: ApprovalMode): SafetySettingsPayload {
-  switch (approvalMode) {
-    case 'review_all':
-      return { approvalMode, requireApprovalForWrites: true, requireApprovalForShell: true };
-    case 'ask_edits':
-      return { approvalMode, requireApprovalForWrites: true, requireApprovalForShell: false };
-    case 'ask_deletes':
-      return { approvalMode, requireApprovalForWrites: false, requireApprovalForShell: false };
-    case 'ask_commands':
-      return { approvalMode, requireApprovalForWrites: false, requireApprovalForShell: true };
-    case 'auto':
-      return { approvalMode, requireApprovalForWrites: false, requireApprovalForShell: false };
-  }
-}
-
-function approvalModeDescription(mode: ApprovalMode): string {
-  switch (mode) {
-    case 'review_all':
-      return 'Pause before file edits and mutating shell commands.';
-    case 'ask_edits':
-      return 'Pause before write_file, apply_patch, and delete-like shell commands.';
-    case 'ask_deletes':
-      return 'Pause only for delete-like shell commands such as rm or npm uninstall.';
-    case 'ask_commands':
-      return 'Pause before mutating shell commands, but allow file edits.';
-    case 'auto':
-      return 'Do not pause for allowed operations. Dangerous commands remain blocked.';
-  }
 }

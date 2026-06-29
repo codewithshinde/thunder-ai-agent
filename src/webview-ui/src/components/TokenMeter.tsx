@@ -18,7 +18,7 @@ function formatCompact(n: number): string {
 export function TokenMeter({ usage, compact = false, placement = 'below' }: TokenMeterProps) {
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const sessionTotal = usage.sessionTotal ?? 0;
+  const sessionTotal = usage.sessionTotal ?? inputTotal + outputTotal;
   const inputTotal = usage.inputTokensTotal ?? 0;
   const outputTotal = usage.outputTokensTotal ?? 0;
   const currentTurnTotal = usage.currentTurnTotal ?? 0;
@@ -31,19 +31,20 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
   const lastCallOutput = usage.lastCallOutputTokens ?? 0;
   const requestTokens = lastCallInput > 0 ? lastCallInput : usage.lastPromptTokens;
   const requestPct = usage.contextWindow > 0
-    ? Math.min(100, Math.round((requestTokens / usage.contextWindow) * 100))
+    ? Math.round((requestTokens / usage.contextWindow) * 100)
     : 0;
   const pct = usage.contextWindow > 0
-    ? Math.min(100, Math.round((usage.lastPromptTokens / usage.contextWindow) * 100))
+    ? Math.round((usage.lastPromptTokens / usage.contextWindow) * 100)
     : 0;
+  const overBudget = requestPct > 100;
 
   const tooltip = [
-    `Session AI tokens: ${sessionTotal.toLocaleString()} estimated input + output tokens`,
+    `Session total: ${sessionTotal.toLocaleString()} tokens (input + output)`,
     `Input: ${inputTotal.toLocaleString()} · Output: ${outputTotal.toLocaleString()}`,
+    `Context window: ${usage.contextWindow.toLocaleString()} tokens`,
     `AI calls: ${aiCallCount.toLocaleString()} total · ${currentTurnAiCallCount.toLocaleString()} this turn`,
-    `Latest AI call: ${requestTokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} (${requestPct}%)`,
-    `Retrieved context pack: ${usage.lastContextTokens.toLocaleString()} tokens`,
-    `${usage.turnCount} turns · ${pct}% of context window`,
+    `Latest AI call: ${requestTokens.toLocaleString()} input (${requestPct}% of window)`,
+    `${usage.turnCount} turns`,
   ].join('\n');
 
   useEffect(() => {
@@ -77,9 +78,9 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
           onClick={() => setOpen((value) => !value)}
         >
           <IconTokens width={13} height={13} />
-          <span>{formatCompact(requestTokens)}</span>
+          <span>{formatCompact(sessionTotal)}</span>
           <span className="token-chip__sep">·</span>
-          <span>{formatCompact(usage.lastContextTokens)} ctx</span>
+          <span>{formatCompact(usage.contextWindow)} window</span>
         </button>
         {open && (
           <div className="token-popover__panel" role="dialog" aria-label="Token usage details">
@@ -110,13 +111,16 @@ export function TokenMeter({ usage, compact = false, placement = 'below' }: Toke
             </dl>
             <div className="token-popover__section-title">
               <span>Latest AI Call</span>
-              <strong>{requestPct}% Used</strong>
+              <strong>{overBudget ? `${requestPct}% Over budget` : `${requestPct}% Used`}</strong>
             </div>
             <div className="token-popover__summary">
               <span>{formatCompact(requestTokens)} input / {formatCompact(usage.contextWindow)} window</span>
             </div>
             <div className="token-popover__bar" aria-hidden="true">
-              <div className="token-popover__fill" style={{ width: `${requestPct}%` }} />
+              <div
+                className={`token-popover__fill${overBudget ? ' token-popover__fill--over' : ''}`}
+                style={{ width: `${Math.min(100, requestPct)}%` }}
+              />
             </div>
             <div className="token-popover__summary token-popover__summary--secondary">
               <span>Session total: {formatCompact(sessionTotal)} · Retrieved pack: {formatCompact(usage.lastContextTokens)}</span>

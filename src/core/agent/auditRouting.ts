@@ -74,7 +74,7 @@ export function buildScriptFirstAuditMessage(task: string): string {
   ].join('\n');
 }
 
-/** Injected at session start for audit/cleanup tasks in Act mode. */
+/** Injected at session start for audit/cleanup tasks in Agent mode. */
 export function buildAuditBootstrapBlock(): string {
   return `## MANDATORY AUDIT BOOTSTRAP (first tool round)
 

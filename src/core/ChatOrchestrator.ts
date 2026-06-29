@@ -32,6 +32,7 @@ import { PlanExecutor } from './agent/PlanExecutor';
 import { analyzeTask } from './agent/TaskAnalyzer';
 import { extractOriginalTaskMessage, isApprovalContinuationMessage } from './agent/taskMessage';
 import { compactMessagesWithLlm } from './agent/ContextCompaction';
+import { getMaxInputTokens } from './agent/PromptBudget';
 import { isAuditCleanupTask, AUDIT_AGENT_MAX_STEPS } from './agent/taskKind';
 import { setResearchAgentRuntime } from './tools/builtinTools';
 import type { SessionService } from './session/SessionService';
@@ -282,7 +283,31 @@ export class ChatOrchestrator {
       retrievedPaths.slice(0, 8).join('\n')
     );
 
-    const contextBudget = Math.floor(provider.capabilities.contextWindow * 0.75);
+    const hookInjection = this.deps.memoryHookService
+      ? await this.deps.memoryHookService.onUserPromptSubmit(session.id, userMessage)
+      : undefined;
+    const passiveMemories = await (this.deps.passiveMemoryInjector?.inject(userMessage, session.id) ?? Promise.resolve([]));
+    if (passiveMemories.length > 0) {
+      items = [...items, ...passiveMemories];
+      this.emitActivity('info', `Injected ${passiveMemories.length} passive memories`);
+    }
+    if (hookInjection) {
+      items = [
+        ...items,
+        {
+          id: 'hook-user-prompt',
+          source: 'memory',
+          content: hookInjection,
+          score: 5,
+          reason: 'UserPromptSubmit hook',
+          tokenEstimate: Math.ceil(hookInjection.length / 4),
+        },
+      ];
+      this.emitActivity('info', 'UserPromptSubmit hook injected context');
+    }
+
+    const maxInputTokens = getMaxInputTokens(provider.capabilities.contextWindow);
+    const contextBudget = Math.floor(maxInputTokens * 0.65);
     const pack = this.budgeter.budget(items, contextBudget);
     const displayPack: ContextPack = {
       ...pack,
@@ -317,7 +342,7 @@ export class ChatOrchestrator {
       pinnedContext: pinnedContext.map((p) => p.path),
     });
 
-    const transcriptBudget = Math.floor(provider.capabilities.contextWindow * 0.15);
+    const transcriptBudget = Math.floor(maxInputTokens * 0.12);
     sessionTiming.start('context_compaction');
     const compacted = await compactMessagesWithLlm(recentMessages, transcriptBudget, provider);
     sessionTiming.end('context_compaction', sessionLog, {
@@ -326,26 +351,6 @@ export class ChatOrchestrator {
     });
     if (compacted.length < recentMessages.length) {
       this.emitActivity('info', `Compacted ${recentMessages.length - compacted.length} older messages`);
-    }
-
-    const hookInjection = this.deps.memoryHookService
-      ? await this.deps.memoryHookService.onUserPromptSubmit(session.id, userMessage)
-      : undefined;
-    const passiveMemories = await (this.deps.passiveMemoryInjector?.inject(userMessage, session.id) ?? Promise.resolve([]));
-    if (passiveMemories.length > 0) {
-      pack.items.push(...passiveMemories);
-      this.emitActivity('info', `Injected ${passiveMemories.length} passive memories`);
-    }
-    if (hookInjection) {
-      pack.items.push({
-        id: 'hook-user-prompt',
-        source: 'memory',
-        content: hookInjection,
-        score: 5,
-        reason: 'UserPromptSubmit hook',
-        tokenEstimate: Math.ceil(hookInjection.length / 4),
-      });
-      this.emitActivity('info', 'UserPromptSubmit hook injected context');
     }
 
     const toolsEnabled = provider.capabilities.supportsTools
@@ -364,6 +369,7 @@ export class ChatOrchestrator {
     const subagentsEnabled =
       (agentConfig?.subagentsEnabled ?? true) &&
       !auditMode &&
+      session.mode !== 'ask' &&
       taskAnalysis.shouldUseSubagents;
     const tools = toolsEnabled
       ? toolsToDefinitions(this.deps.toolRuntime!.list()).filter((tool) =>
@@ -389,8 +395,8 @@ export class ChatOrchestrator {
       this.emitActivity('info', 'Resuming after approval — continuing execution');
     } else if (plannerEnabled) {
       this.emitActivity('info', `Orchestration: ${taskAnalysis.kind} (${taskAnalysis.complexity})`, taskAnalysis.summary);
-    } else if (orchestrationEnabled && taskAnalysis.shouldPlan && session.mode === 'act') {
-      this.emitActivity('info', 'Fast Act mode — sending directly to the tool-using agent', taskAnalysis.summary);
+    } else if (orchestrationEnabled && taskAnalysis.shouldPlan && session.mode === 'agent') {
+      this.emitActivity('info', 'Fast Agent mode — sending directly to the tool-using agent', taskAnalysis.summary);
     }
     this.deps.sessionLog?.append('info', 'Task analysis', {
       kind: taskAnalysis.kind,
@@ -558,7 +564,7 @@ export class ChatOrchestrator {
             steps: plan.steps.map((s) => ({ id: s.id, title: s.title, risk: s.risk, phase: s.phase })),
           });
 
-          if (session.mode === 'act') {
+          if (session.mode === 'agent') {
             this.setLiveStatus('Executing plan', plan.goal, 1, plan.steps.length);
             this.emitActivity('info', `Executing ${plan.steps.length} steps…`);
             const planHeader = formatPlanHeader(plan);
@@ -622,7 +628,7 @@ export class ChatOrchestrator {
             const planText = formatPlanAsResponse(plan);
             fullResponse = planText;
             yield planText;
-            this.emitActivity('info', 'Plan ready — switch to Act mode to execute steps');
+            this.emitActivity('info', 'Plan ready — switch to Agent mode to execute steps');
           }
 
           await this.finishTurn(session, provider, userMessage, fullResponse, displayPack, compacted);
@@ -709,7 +715,7 @@ export class ChatOrchestrator {
           this.emitActivity('approval', 'Paused — waiting for your approval', this.deps.taskState?.getPauseSummary());
         } else if (!this.agentLoop.hadPendingApproval() && !signal.aborted) {
           if (
-            session.mode === 'act' &&
+            session.mode === 'agent' &&
             agentConfig?.verifyOnActComplete &&
             (agentConfig.verifyCommands?.length ?? 0) > 0
           ) {
@@ -725,7 +731,7 @@ export class ChatOrchestrator {
           if (
             orchestrationEnabled &&
             taskAnalysis.shouldVerify &&
-            session.mode === 'act' &&
+            session.mode === 'agent' &&
             this.planExecutor
           ) {
             this.setLiveStatus('Final validation');
@@ -1232,7 +1238,7 @@ function formatPlanAsResponse(plan: import('./planning/PlanActEngine').ThunderPl
   if (plan.requiredApprovals.length > 0) {
     lines.push('', '### Required approvals', ...plan.requiredApprovals.map((a) => `- ${a}`));
   }
-  lines.push('', '---', '*Switch to **Act** mode and ask to execute this plan when ready.*');
+  lines.push('', '---', '*Switch to **Agent** mode and ask to execute this plan when ready.*');
   return lines.join('\n');
 }
 
@@ -1243,9 +1249,9 @@ function shouldUsePlanner(
   auditMode = false
 ): boolean {
   if (!orchestrationEnabled || !taskAnalysis.shouldPlan) return false;
-  // Audit in Act mode: script-first direct path — skip 9-step planner overhead
-  if (auditMode && mode === 'act') return false;
-  return mode === 'plan' || mode === 'act';
+  // Audit in Agent mode: script-first direct path — skip 9-step planner overhead
+  if (auditMode && mode === 'agent') return false;
+  return mode === 'plan' || mode === 'agent';
 }
 
 export { shouldUsePlanner };
@@ -1255,7 +1261,7 @@ function shouldExecuteSavedPlan(
   userMessage: string,
   hasActivePlan: boolean
 ): boolean {
-  if (mode !== 'act' || !hasActivePlan) return false;
+  if (mode !== 'agent' || !hasActivePlan) return false;
   const lower = userMessage.toLowerCase();
   return /\b(execute|run|start|continue|resume)\b.*\bplan\b/.test(lower)
     || /\bplan\b.*\b(execute|run|start|continue|resume)\b/.test(lower)

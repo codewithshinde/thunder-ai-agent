@@ -945,7 +945,7 @@ export class ThunderController {
     const detail = errors.map((e) => `Line ${e.line}: ${e.message}`).join('\n');
     this.pushActivity('error', `${errors.length} error(s) in ${relPath} after apply`, detail);
 
-    if (this.session?.mode !== 'act' || !this.autoFixCallback || this.autoFixDepth >= 2) {
+    if (this.session?.mode !== 'agent' || !this.autoFixCallback || this.autoFixDepth >= 2) {
       return;
     }
     if (this.shouldDeferAutoFixUntilApprovalResume()) {
@@ -1584,7 +1584,7 @@ export class ThunderController {
     if (!this.toolExecutor || !fullInput) {
       log.warn('Approval missing full input', { id, tool: request.toolName });
       void vscode.window.showErrorMessage(
-        brandMessage('Could not apply change — approval data was missing. Please ask again in Act mode.')
+        brandMessage('Could not apply change — approval data was missing. Please ask again in Agent mode.')
       );
       this.pushActivity('error', 'Approval failed — payload missing', request.files.join(', '));
       return;
