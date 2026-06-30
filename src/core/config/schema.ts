@@ -65,6 +65,7 @@ export const MemoryConfigSchema = z.object({
 export const AgentConfigSchema = z.object({
   subagentsEnabled: z.boolean().default(true),
   maxSteps: z.number().int().min(1).max(100).default(15),
+  askMaxSteps: z.number().int().min(1).max(50).default(8),
   autoContinue: z.boolean().default(true),
   maxAutoContinues: z.number().int().min(0).max(10).default(2),
   researchAgentMaxSteps: z.number().int().min(1).max(50).default(6),

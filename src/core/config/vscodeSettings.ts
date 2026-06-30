@@ -57,6 +57,7 @@ export function readThunderConfigFromSettings(): ThunderConfig {
     agent: {
       subagentsEnabled: config.get<boolean>('agent.subagentsEnabled'),
       maxSteps: config.get<number>('agent.maxSteps'),
+      askMaxSteps: config.get<number>('agent.askMaxSteps'),
       autoContinue: config.get<boolean>('agent.autoContinue'),
       maxAutoContinues: config.get<number>('agent.maxAutoContinues'),
       researchAgentMaxSteps: config.get<number>('agent.researchAgentMaxSteps'),

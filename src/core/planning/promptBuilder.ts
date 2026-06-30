@@ -7,6 +7,25 @@ import { CHAT_HISTORY_GUIDANCE, STATE_MACHINE_GUIDANCE } from '../agent/taskStat
 import { buildAuditBootstrapBlock } from '../agent/auditRouting';
 import { buildMdxRepairBootstrapBlock } from '../agent/mdxRepairRouting';
 
+const ASK_TOOL_GUIDANCE = `
+ASK MODE TOOLS — read-only exploration only:
+- Use read_file/read_files/search/search_batch/list_files/repo_map/retrieve_context before stating codebase facts.
+- Batch independent reads in ONE turn (read_files max 12 paths; prefer 8-10).
+- Use git_diff and diagnostics when the question is about changes or errors.
+- Use run_command only for read-only inspection (rg, git status/diff/log, lint/test without --fix).
+- Use execute_workspace_script for approved audit helpers (depcheck/knip) — not for writes.
+- Use spawn_research_agent for broad "how does X work across the repo?" questions.
+- Use fetch_web only for external docs when local context is insufficient.
+- Use ask_question when scope is ambiguous (2-5 options).
+- NEVER call write_file, apply_patch, or mutating shell commands.
+- NEVER say "I will search…" without calling tools in the same turn.
+
+Answer format:
+1. **Summary** — 1-2 sentences
+2. **Details** — bullets with \`path:line\` citations when referencing code
+3. **Not found** — anything you could not verify in the repo (or omit if fully grounded)
+4. **Next step** — if the user wants edits, suggest switching to Agent mode`;
+
 const TOOL_GUIDANCE = `
 TOOLS: You have tools to read files, search code, run commands, write files, and manage memory.
 - Use read_file/read_files/search/search_batch/list_files to gather information before editing.
@@ -83,8 +102,9 @@ export function buildSystemPrompt(
 ): string {
   const modeInstructions: Record<ThunderMode, string> = {
     ask: `You are in ASK mode. Answer questions about the codebase using read-only exploration.
-- Use read_file, read_files, search, list_files, and read-only run_command to investigate before answering.
-- Give direct, well-structured answers with file path citations when referencing code.
+- Investigate with tools before stating facts about this repo — do not guess from training data.
+- Give direct, well-structured answers with \`path:line\` citations when referencing code.
+- Say explicitly when something was not found in the workspace.
 - Do NOT edit files, run mutating shell commands, or implement changes — suggest switching to Agent mode if the user wants edits.`,
     plan: `You are in PLAN mode. Analyze the codebase and give a direct answer.
 - Start with a 1-2 sentence summary of your recommendation.
@@ -137,9 +157,9 @@ For multi-step tasks in Plan mode, include:
   return `You are ${AGENT_NAME}, a local-first VS Code coding agent with codebase context injected below.
 
 ${modeInstructions[mode]}
-${toolsEnabled ? TOOL_GUIDANCE : ''}
-${toolsEnabled ? DOCS_TASK_GUIDANCE : ''}
-${toolsEnabled ? MDX_REPAIR_GUIDANCE : ''}
+${toolsEnabled ? (mode === 'ask' ? ASK_TOOL_GUIDANCE : TOOL_GUIDANCE) : ''}
+${toolsEnabled && mode !== 'ask' ? DOCS_TASK_GUIDANCE : ''}
+${toolsEnabled && mode !== 'ask' ? MDX_REPAIR_GUIDANCE : ''}
 ${toolsEnabled && auditMode ? AUDIT_GUIDANCE : ''}
 ${toolsEnabled && isContinuation ? '\nCONTINUATION TURN: Resume the existing state machine. Read Task progress, approved tool outputs, and recent conversation first. Continue from the pending EXECUTE/VERIFY step. Do NOT re-run audit-dependencies, audit-dead-code, list_files, or memory_search before using the approval context.' : ''}
 ${mode === 'plan' ? planFormat : ''}

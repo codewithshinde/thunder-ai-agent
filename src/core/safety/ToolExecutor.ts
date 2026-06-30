@@ -12,6 +12,8 @@ import {
   type PlanPhase,
 } from '../planning/PlanActEngine';
 import { resolveToolName } from '../tools/toolAliases';
+import { normalizeThunderMode } from '../ThunderSession';
+import { isAskAllowedTool } from '../agent/askMode';
 import { createLogger } from '../telemetry/Logger';
 import type { SessionLogService } from '../telemetry/SessionLogService';
 
@@ -113,6 +115,10 @@ export class ToolExecutor {
     }
     if (resolvedName === 'run_command' && !isShellAllowed(mode, typeof input.command === 'string' ? input.command : undefined)) {
       return this.finishBlocked(resolvedName, input, 'Shell blocked in Ask/Plan/Review mode (read-only commands like depcheck/grep are allowed)');
+    }
+
+    if (normalizeThunderMode(mode) === 'ask' && !isAskAllowedTool(resolvedName)) {
+      return this.finishBlocked(resolvedName, input, `Tool ${resolvedName} is not available in Ask mode`);
     }
 
     const sessionId = this.getSessionId();

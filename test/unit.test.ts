@@ -663,6 +663,58 @@ describe('Plan/Act task analysis', () => {
   });
 });
 
+describe('Ask mode helpers', () => {
+  it('filters tools to the Ask allowlist', async () => {
+    const { filterAskModeTools, ASK_ALLOWED_TOOLS } = await import('../src/core/agent/askMode');
+    const tools = [
+      { type: 'function' as const, function: { name: 'read_file', description: '', parameters: {} } },
+      { type: 'function' as const, function: { name: 'write_file', description: '', parameters: {} } },
+      { type: 'function' as const, function: { name: 'mcp__fs__read', description: '', parameters: {} } },
+    ];
+    const filtered = filterAskModeTools(tools);
+    expect(filtered.map((t) => t.function.name)).toEqual(['read_file', 'mcp__fs__read']);
+    expect(ASK_ALLOWED_TOOLS.has('spawn_research_agent')).toBe(true);
+    expect(ASK_ALLOWED_TOOLS.has('write_file')).toBe(false);
+  });
+
+  it('detects when Ask answers need grounding', async () => {
+    const { needsAskGrounding, isGeneralKnowledgeQuestion, shouldEnableAskSubagents } =
+      await import('../src/core/agent/askMode');
+
+    expect(needsAskGrounding('Where is ChatOrchestrator.send defined?')).toBe(true);
+    expect(needsAskGrounding('hi')).toBe(false);
+    expect(isGeneralKnowledgeQuestion('What is a binary search tree?')).toBe(true);
+    expect(needsAskGrounding('What is a binary search tree?')).toBe(false);
+    expect(shouldEnableAskSubagents('How does authentication flow across the entire codebase?')).toBe(true);
+    expect(shouldEnableAskSubagents('What is OAuth?')).toBe(false);
+  });
+
+  it('blocks disallowed tools in ask mode via ToolExecutor', async () => {
+    const { ToolExecutor } = await import('../src/core/safety/ToolExecutor');
+    const { ToolRuntime } = await import('../src/core/tools/ToolRuntime');
+    const { ToolPolicyEngine } = await import('../src/core/safety/ToolPolicyEngine');
+    const { ApprovalQueue } = await import('../src/core/safety/ApprovalQueue');
+
+    const runtime = new ToolRuntime();
+    const executor = new ToolExecutor(
+      runtime,
+      new ToolPolicyEngine({
+        requireApprovalForWrites: true,
+        requireApprovalForShell: true,
+        allowNetwork: false,
+        blockDangerousCommands: true,
+      }, () => false),
+      new ApprovalQueue(),
+      () => 'session-1',
+      () => 'ask'
+    );
+
+    const result = await executor.execute('mark_step_complete', { stepId: 'step-1' });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('not available in Ask mode');
+  });
+});
+
 describe('ThunderMode normalization', () => {
   it('maps legacy act to agent', async () => {
     const { normalizeThunderMode } = await import('../src/core/ThunderSession');

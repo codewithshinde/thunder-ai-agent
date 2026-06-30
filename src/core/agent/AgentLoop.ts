@@ -3,6 +3,7 @@ import type { ToolDefinition, ToolCall } from '../llm/toolTypes';
 import type { ToolExecutor } from '../safety/ToolExecutor';
 import { formatToolResult } from '../tools/builtinTools';
 import { NO_TOOLS_AUDIT_NUDGE } from './taskKind';
+import { NO_TOOLS_ASK_NUDGE, isGroundingToolCall } from './askMode';
 import type { PlanPhase, ThunderPlan } from '../planning/PlanActEngine';
 import { isPhaseLockRunCommandError, isPhaseLockWriteError } from '../planning/PlanActEngine';
 import { buildPlanTrackerPacket } from '../planning/PlanFileStore';
@@ -46,6 +47,9 @@ export interface AgentLoopOptions {
   restrictRunCommandToReadOnly?: boolean;
   /** Active plan for state-invariant sync — injects locked MASTER PLAN TRACKER header. */
   planTracker?: ThunderPlan;
+  /** Ask mode: retry once when the model answers without grounding tools. */
+  askMode?: boolean;
+  requiresAskGrounding?: boolean;
 }
 
 export interface AgentLoopSuspendState {
@@ -108,6 +112,8 @@ export class AgentLoop {
     const autoContinue = options?.autoContinue ?? true;
     const maxAutoContinues = options?.maxAutoContinues ?? 2;
     let auditNudgeUsed = false;
+    let askNudgeUsed = false;
+    let groundingToolCallsMade = false;
     let autoContinuesUsed = 0;
     let totalSteps = 0;
     let phaseLockWriteFailures = 0;
@@ -175,6 +181,18 @@ export class AgentLoop {
           messages.push({ role: 'user', content: NO_TOOLS_AUDIT_NUDGE });
           continue;
         }
+        if (
+          options?.askMode &&
+          options?.requiresAskGrounding &&
+          stepContent &&
+          !askNudgeUsed &&
+          !groundingToolCallsMade
+        ) {
+          askNudgeUsed = true;
+          messages.push({ role: 'assistant', content: stepContent });
+          messages.push({ role: 'user', content: NO_TOOLS_ASK_NUDGE });
+          continue;
+        }
         if (stepContent) {
           messages.push({ role: 'assistant', content: stepContent });
         }
@@ -212,6 +230,10 @@ export class AgentLoop {
 
       for (const { tc, input, execResult, durationMs } of executions) {
         if (signal?.aborted) break;
+
+        if (execResult.success && isGroundingToolCall(tc.function.name)) {
+          groundingToolCallsMade = true;
+        }
 
         if (execResult.pendingApproval) {
           pendingApproval = true;

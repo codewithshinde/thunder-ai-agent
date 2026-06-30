@@ -28,7 +28,6 @@ import type { ToolExecutor } from './safety/ToolExecutor';
 import type { ToolRuntime } from './tools/ToolRuntime';
 import { toolsToDefinitions } from './tools/toolSchema';
 import { filterDirectAgentTools } from './tools/toolAliases';
-import type { ToolDefinition } from './llm/toolTypes';
 import { AgentLoop, type ApprovedToolResult, type AgentLoopSuspendState } from './agent/AgentLoop';
 import { PlanExecutor } from './agent/PlanExecutor';
 import { analyzeTask } from './agent/TaskAnalyzer';
@@ -36,6 +35,11 @@ import { extractOriginalTaskMessage, isApprovalContinuationMessage } from './age
 import { compactMessagesWithLlm } from './agent/ContextCompaction';
 import { getMaxInputTokens } from './agent/PromptBudget';
 import { isAuditCleanupTask, AUDIT_AGENT_MAX_STEPS } from './agent/taskKind';
+import {
+  filterAskModeTools,
+  needsAskGrounding,
+  shouldEnableAskSubagents,
+} from './agent/askMode';
 import {
   extractMdxErrorFile,
   isMdxRepairTask,
@@ -375,17 +379,20 @@ export class ChatOrchestrator {
       this.agentLoop?.clearSuspendState();
     }
     const orchestrationEnabled = agentConfig?.orchestrationEnabled ?? true;
+    const isAskMode = session.mode === 'ask';
     const plannerEnabled = shouldUsePlanner(session.mode, taskAnalysis, orchestrationEnabled, auditMode);
     const subagentsEnabled =
       (agentConfig?.subagentsEnabled ?? true) &&
       !auditMode &&
-      session.mode !== 'ask' &&
-      taskAnalysis.shouldUseSubagents;
-    const tools = toolsEnabled
+      (isAskMode ? shouldEnableAskSubagents(userMessage) : taskAnalysis.shouldUseSubagents);
+    let tools = toolsEnabled
       ? toolsToDefinitions(this.deps.toolRuntime!.list()).filter((tool) =>
           subagentsEnabled || tool.function.name !== 'spawn_research_agent'
         )
       : [];
+    if (isAskMode) {
+      tools = filterAskModeTools(tools);
+    }
 
     if (toolsEnabled && this.deps.toolExecutor) {
       setResearchAgentRuntime({
@@ -405,6 +412,8 @@ export class ChatOrchestrator {
       this.emitActivity('info', 'MDX repair mode — fix exact build failure', mdxErrorFile ?? taskAnalysis.summary);
     } else if (isResume) {
       this.emitActivity('info', 'Resuming after approval — continuing execution');
+    } else if (isAskMode) {
+      this.emitActivity('info', 'Ask mode — read-only exploration', taskAnalysis.summary);
     } else if (plannerEnabled) {
       this.emitActivity('info', `Orchestration: ${taskAnalysis.kind} (${taskAnalysis.complexity})`, taskAnalysis.summary);
     } else if (orchestrationEnabled && taskAnalysis.shouldPlan && session.mode === 'agent') {
@@ -691,8 +700,11 @@ export class ChatOrchestrator {
 
       if (toolsEnabled && this.agentLoop) {
         const directAgentTools = filterDirectAgentTools(tools);
-        this.setLiveStatus('Agent running');
-        this.emitActivity('info', auditMode ? 'Scanning project with tools…' : 'Agent loop started');
+        this.setLiveStatus(isAskMode ? 'Answering' : 'Agent running');
+        this.emitActivity(
+          'info',
+          isAskMode ? 'Exploring codebase (read-only)…' : auditMode ? 'Scanning project with tools…' : 'Agent loop started'
+        );
         sessionTiming.start('direct_agent');
 
         for await (const chunk of this.agentLoop.run(
@@ -703,9 +715,15 @@ export class ChatOrchestrator {
           sharedLoopCallbacks,
           {
             auditMode,
-            maxSteps: auditMode ? AUDIT_AGENT_MAX_STEPS : agentConfig?.maxSteps,
-            autoContinue: agentConfig?.autoContinue ?? true,
-            maxAutoContinues: agentConfig?.maxAutoContinues,
+            askMode: isAskMode,
+            requiresAskGrounding: isAskMode && needsAskGrounding(userMessage),
+            maxSteps: isAskMode
+              ? (agentConfig?.askMaxSteps ?? 8)
+              : auditMode
+                ? AUDIT_AGENT_MAX_STEPS
+                : agentConfig?.maxSteps,
+            autoContinue: isAskMode ? false : (agentConfig?.autoContinue ?? true),
+            maxAutoContinues: isAskMode ? 0 : agentConfig?.maxAutoContinues,
           }
         )) {
           if (signal.aborted) break;
