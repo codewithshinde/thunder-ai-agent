@@ -15,6 +15,7 @@ import type { ContextPack } from '../context/types';
 import type { PostEditValidator } from '../apply/PostEditValidator';
 import type { ToolExecutor, ToolExecutionResult } from '../safety/ToolExecutor';
 import type { TaskAnalysis } from './TaskAnalyzer';
+import { formatVerifyPlanForAgent, resolveProjectVerifyCommands } from './verifyCommandDiscovery';
 import {
   buildStepPrompt,
   buildPlanGenerationPrompt,
@@ -291,15 +292,34 @@ export class PlanExecutor {
         onPlanUpdate?.(plan);
 
         const stepStartedAt = Date.now();
+        const phaseLock = resolveStepPhaseLock(step, session.mode);
+        const isVerifyStep = phaseLock === 'verify' || /\b(verify|verification|lint|build|validate|test)\b/i.test(step.title);
+        const verifyContextBlock =
+          isVerifyStep && options?.workspace
+            ? formatVerifyPlanForAgent(
+                resolveProjectVerifyCommands(options.workspace, [], {
+                  touchedFiles: [...this.touchedFiles],
+                  userMessage: plan.goal,
+                })
+              )
+            : undefined;
         const messages =
           attempt === 0
-            ? buildStepPrompt(session.mode, pack, plan, step, this.stepSummaries)
-            : buildStepRetryPrompt(session.mode, pack, plan, step, this.stepSummaries, lastValidationErrors);
+            ? buildStepPrompt(session.mode, pack, plan, step, this.stepSummaries, verifyContextBlock)
+            : buildStepRetryPrompt(
+                session.mode,
+                pack,
+                plan,
+                step,
+                this.stepSummaries,
+                lastValidationErrors,
+                verifyContextBlock
+              );
 
         let stepOutput = '';
         let successfulWrites = 0;
+        let failedVerifyCommands = 0;
         let pendingApproval = false;
-        const phaseLock = resolveStepPhaseLock(step, session.mode);
         const explicitToolCall = getExplicitStepToolCall(step);
         const writeExpected = stepImpliesWrite(step) && session.mode === 'agent' && !explicitToolCall;
 
@@ -353,6 +373,14 @@ export class PlanExecutor {
                 loopCallbacks?.onToolEnd?.(name, success, output);
                 if (success && ['write_file', 'apply_patch'].includes(name)) {
                   successfulWrites += 1;
+                }
+                if (
+                  isVerifyStep &&
+                  name === 'run_command' &&
+                  !success &&
+                  !/\bSkipped redundant\b/i.test(output ?? '')
+                ) {
+                  failedVerifyCommands += 1;
                 }
               },
             },
@@ -410,6 +438,24 @@ export class PlanExecutor {
           break;
         }
 
+        if (isVerifyStep && failedVerifyCommands > 0) {
+          lastValidationErrors = [
+            `Verification commands failed ${failedVerifyCommands} time(s). Fix reported errors before completing this step.`,
+            'Read package.json scripts first — do not assume npm run lint exists.',
+          ];
+          attempt += 1;
+          if (attempt <= maxRetries) {
+            yield `\n\n⚠️ Verification failed — retrying step ${i + 1}/${plan.steps.length} (${attempt + 1}/${maxRetries + 1})…\n`;
+            plan.steps[i] = { ...plan.steps[i], status: 'pending' };
+            continue;
+          }
+          plan.steps[i] = { ...plan.steps[i], status: 'failed' };
+          this.planPersistence.updatePlan(session.id, plan, 'running');
+          onPlanUpdate?.(plan);
+          yield `\n\n❌ Verification step failed after ${maxRetries + 1} attempts.\n`;
+          break;
+        }
+
         stepSucceeded = true;
         const summary = summarizeStepOutput(stepOutput, step.title);
         this.stepSummaries.push(`Step ${i + 1} (${step.title}): ${summary}`);
@@ -419,6 +465,7 @@ export class PlanExecutor {
           title: step.title,
           stepIndex: i + 1,
           success: true,
+          verifyFailures: failedVerifyCommands,
         });
         options?.sessionLog?.append('plan_step', step.title, {
           stepId: step.id,
@@ -495,13 +542,22 @@ export class PlanExecutor {
   ): AsyncIterable<string> {
     const touchedFiles = options?.touchedFiles ?? Array.from(this.touchedFiles);
     const workspaceErrors = await this.collectWorkspaceErrors(touchedFiles);
+    const verifyContextBlock = options?.workspace
+      ? formatVerifyPlanForAgent(
+          resolveProjectVerifyCommands(options.workspace, [], {
+            touchedFiles,
+            userMessage: plan.goal,
+          })
+        )
+      : undefined;
     const messages = buildFinalValidationPrompt(
       session.mode,
       pack,
       plan,
       this.stepSummaries,
       touchedFiles,
-      workspaceErrors
+      workspaceErrors,
+      verifyContextBlock
     );
 
     for await (const chunk of this.agentLoop.run(

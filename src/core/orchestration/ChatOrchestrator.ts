@@ -28,6 +28,7 @@ import type { ToolExecutor } from '../safety/ToolExecutor';
 import type { ToolRuntime } from '../tools/ToolRuntime';
 import { toolsToDefinitions } from '../tools/toolSchema';
 import { AgentLoop, type ApprovedToolResult, type AgentLoopSuspendState } from '../runtime/AgentLoop';
+import { isSkippedToolOutput } from '../runtime/toolSkip';
 import { PlanExecutor } from '../runtime/PlanExecutor';
 import { analyzeTask } from '../runtime/TaskAnalyzer';
 import { extractOriginalTaskMessage, isApprovalContinuationMessage } from '../runtime/taskMessage';
@@ -101,7 +102,7 @@ export interface ChatOrchestratorDeps {
   memoryService?: MemoryService;
   taskState?: AgentTaskState;
   researchAgentProvider?: LlmProvider;
-  runVerifyHooks?: (commands: string[]) => Promise<string>;
+  runVerifyHooks?: (commands: string[], userMessage?: string) => Promise<string>;
   skillCatalog?: SkillCatalogService;
   allowNetwork?: () => boolean;
   githubIssueFetcher?: GitHubIssueFetcher;
@@ -965,15 +966,14 @@ export class ChatOrchestrator {
         } else if (!this.agentLoop.hadPendingApproval() && !signal.aborted) {
           if (
             session.mode === 'agent' &&
-            agentConfig?.verifyOnActComplete &&
-            (agentConfig.verifyCommands?.length ?? 0) > 0
+            agentConfig?.verifyOnActComplete
           ) {
             this.setLiveStatus('Running verify hooks');
-            this.emitActivity('info', 'Running configured verify commands…');
+            this.emitActivity('info', 'Discovering and running project verification…');
             const verifyCommands = mdxRepairMode
               ? suggestDocsVerifyCommands()
               : (agentConfig.verifyCommands ?? []);
-            const verifyOutput = await this.deps.runVerifyHooks?.(verifyCommands);
+            const verifyOutput = await this.deps.runVerifyHooks?.(verifyCommands, taskForClassification);
             if (verifyOutput?.trim()) {
               const block = `\n\n### Verify\n\n${verifyOutput}\n`;
               fullResponse += block;
@@ -1223,6 +1223,11 @@ export class ChatOrchestrator {
           this.emitActivity('skipped', `${toolDisplayName(name)} skipped`, output?.slice(0, 240));
           return;
         }
+        if (success && isSkippedToolOutput(output)) {
+          this.setLiveStatus('Skipped redundant tool', toolDisplayName(name));
+          this.emitActivity('skipped', `${toolDisplayName(name)} skipped`, output?.slice(0, 240));
+          return;
+        }
         if (success) {
           const input = lastToolInputs.get(name);
           if (input) void this.previewDiffIfWrite(name, input);
@@ -1456,9 +1461,7 @@ function toolDisplayName(name: string): string {
   return name.replace(/_/g, ' ');
 }
 
-function isSkippedToolOutput(output?: string): boolean {
-  return Boolean(output && /\bSkipped redundant\b|Skipped redundant tool call/i.test(output));
-}
+export { isSkippedToolOutput } from '../runtime/toolSkip';
 
 function uniqueContextNames(items: Array<{ relPath?: string; source: string }>): string[] {
   return Array.from(new Set(items.map((item) => item.relPath ?? item.source)));

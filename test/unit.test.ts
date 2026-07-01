@@ -1399,6 +1399,34 @@ describe('AgentTaskState', () => {
     expect(soft).not.toContain('Remove unused dependencies');
     expect(state.buildApprovalResumeInstruction()).toContain('fix only the next exact MDX/Docusaurus failure');
   });
+
+  it('blocks repeated read_file after first successful read', async () => {
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
+    const state = new AgentTaskState();
+    state.recordToolSuccess('read_file', { path: 'apps/docs/docusaurus.config.ts' }, 'export default {}');
+    const blocked = state.checkBlocked('read_file', { path: 'apps/docs/docusaurus.config.ts' });
+    expect(blocked).toContain('Already read');
+    const soft = state.buildSoftBlockResponse('read_file', { path: 'apps/docs/docusaurus.config.ts' });
+    expect(soft).toContain('Cached output');
+    expect(soft).toContain('export default');
+  });
+
+  it('invalidates read cache after apply_patch', async () => {
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
+    const state = new AgentTaskState();
+    state.recordToolSuccess('read_file', { path: 'src/foo.ts' }, 'const x = 1');
+    state.recordToolSuccess('apply_patch', { path: 'src/foo.ts' }, 'Patched');
+    expect(state.checkBlocked('read_file', { path: 'src/foo.ts' })).toBeNull();
+  });
+
+  it('caps sequential-thinking MCP calls', async () => {
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
+    const state = new AgentTaskState();
+    state.setLimits({ maxSequentialThinkingCalls: 2 });
+    state.recordToolSuccess('mcp__sequential-thinking__sequentialthinking', {}, 'thought 1');
+    state.recordToolSuccess('mcp__sequential-thinking__sequentialthinking', {}, 'thought 2');
+    expect(state.checkMcpCap('mcp__sequential-thinking__sequentialthinking')).toContain('cap');
+  });
 });
 
 describe('tool input coercion', () => {
@@ -1559,6 +1587,31 @@ describe('verifyCommandDiscovery', () => {
       expect(plan.commands).toEqual(['cd apps/docs && npm run build']);
       expect(plan.skipped.join('\n')).toContain('script "lint" not found');
       expect(plan.skipped.join('\n')).toContain('test script is a placeholder');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('auto-discovers scripts from package.json when verifyCommands is empty', async () => {
+    const { resolveProjectVerifyCommands } = await import('../src/core/runtime/verifyCommandDiscovery');
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-verify-auto-test-'));
+    try {
+      mkdirSync(join(tempDir, 'src'), { recursive: true });
+      writeFileSync(join(tempDir, 'package.json'), JSON.stringify({
+        scripts: {
+          typecheck: 'tsc --noEmit',
+          lint: 'eslint .',
+        },
+      }));
+
+      const plan = resolveProjectVerifyCommands(tempDir, [], {
+        touchedFiles: ['src/index.ts'],
+      });
+
+      expect(plan.commands).toEqual(['npm run typecheck']);
+      expect(plan.discoveredScripts['.']).toContain('typecheck');
+      expect(plan.discoveredScripts['.']).toContain('lint');
+      expect(plan.notes.some((n) => /scanned/i.test(n))).toBe(true);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

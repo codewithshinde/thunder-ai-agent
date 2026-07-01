@@ -25,6 +25,7 @@ export interface ActPrepareOptions {
   githubIssueMode?: boolean;
   hasActivePlan?: boolean;
   savedPlanId?: string;
+  /** Empty = discover verify commands from project manifests at runtime */
   verifyCommands?: string[];
 }
 
@@ -69,6 +70,7 @@ export class ActOrchestrator {
         appliedSkills,
         savedPlanId: options.savedPlanId,
         verifyCommands: options.verifyCommands,
+        workspaceRoot: options.workspaceRoot,
       }),
       maxSteps,
       autoContinue,

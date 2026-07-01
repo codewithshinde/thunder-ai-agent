@@ -23,7 +23,7 @@ import { MentionedFileContextSource } from '../context/sources/mentionedFileSour
 import { GitService } from '../context/GitService';
 import { DiagnosticsService, GitDiffContextSource, DiagnosticsContextSource } from '../context/DiagnosticsService';
 import { RepoMapService } from '../context/RepoMapService';
-import { setVerifyCommandPatterns, isReadOnlyCommand } from '../plans/PlanActEngine';
+import { setVerifyCommandPatterns } from '../plans/PlanActEngine';
 import { debounce } from '../util/debounce';
 import { ChatOrchestrator } from '../orchestration/ChatOrchestrator';
 import { ToolRuntime } from '../tools/ToolRuntime';
@@ -43,7 +43,7 @@ import type { LlmProvider } from '../llm/types';
 import { UsageTrackingProvider, type ModelCallUsage } from '../llm/UsageTrackingProvider';
 import { scaffoldMitiiWorkspace } from '../mcp/scaffoldMitiiWorkspace';
 import { AgentTaskState } from '../runtime/AgentTaskState';
-import { resolveProjectVerifyCommands } from '../runtime/verifyCommandDiscovery';
+import { resolveProjectVerifyCommands, formatVerifyPlanForAgent, suggestInstallCommandsForVerifyFailure, isModuleResolutionVerifyFailure } from '../runtime/verifyCommandDiscovery';
 import { isApprovalContinuationMessage } from '../runtime/taskMessage';
 import { ToolPolicyEngine } from '../safety/ToolPolicyEngine';
 import { resolveEffectiveSafety } from '../safety/autonomyPresets';
@@ -651,7 +651,7 @@ export class ThunderController {
       onPostWrite: async (relPath) => {
         await this.validateAfterWrite(relPath);
       },
-      runVerifyHooks: async (commands) => this.runVerifyHooks(commands),
+      runVerifyHooks: async (commands, userMessage) => this.runVerifyHooks(commands, userMessage ?? ''),
       workspace: ws,
       memoryService: this.memoryService,
       taskState: this.agentTaskState,
@@ -674,7 +674,9 @@ export class ThunderController {
     });
     orchestrator.setActivityCallback((entry) => {
       this.agentActivity = [...this.agentActivity.slice(-20), entry];
-      if (entry.kind === 'error' && entry.detail !== 'Awaiting approval') {
+      if (entry.kind === 'skipped') {
+        this.sessionLog.append('info', entry.message, { detail: entry.detail });
+      } else if (entry.kind === 'error' && entry.detail !== 'Awaiting approval') {
         this.sessionLog.append('error', entry.message, { detail: entry.detail });
       }
       const partial: Partial<WebviewState> = { agentActivity: this.agentActivity };
@@ -1021,43 +1023,88 @@ export class ThunderController {
     this.notifyUi({ agentActivity: this.agentActivity });
   }
 
-  private async runVerifyHooks(commands: string[]): Promise<string> {
+  private async runVerifyHooks(commands: string[], userMessage = ''): Promise<string> {
     const workspace = this.resolveWorkspacePath();
     if (!workspace || !this.isWorkspaceTrusted()) return '';
 
     const lines: string[] = [];
     const touchedFiles = this.getTouchedFilesFromAudit();
-    const plan = resolveProjectVerifyCommands(workspace, commands, { touchedFiles });
+    const plan = resolveProjectVerifyCommands(workspace, commands, { touchedFiles, userMessage });
+    const discoveryBlock = formatVerifyPlanForAgent(plan);
+    lines.push(discoveryBlock);
+
     for (const skipped of plan.skipped) {
       this.pushActivity('info', 'Verify skipped', skipped);
     }
 
     if (plan.commands.length === 0) {
-      if (plan.skipped.length > 0) {
-        return `Skipped verify commands:\n${plan.skipped.map((line) => `- ${line}`).join('\n')}`;
-      }
-      return '';
+      return lines.join('\n\n');
     }
+
+    const installAttempted = new Set<string>();
 
     for (const command of plan.commands) {
       const trimmed = command.trim();
-      if (!trimmed || !isReadOnlyCommand(trimmed)) continue;
+      if (!trimmed) continue;
+      const body = await this.runVerifyCommandWithRetry(workspace, trimmed, plan, installAttempted);
+      lines.push(body);
+    }
+
+    return lines.join('\n\n');
+  }
+
+  private async runVerifyCommandWithRetry(
+    workspace: string,
+    command: string,
+    plan: ReturnType<typeof resolveProjectVerifyCommands>,
+    installAttempted: Set<string>
+  ): Promise<string> {
+    const installLog: string[] = [];
+
+    const runOnce = async (): Promise<{ success: boolean; body: string }> => {
       try {
-        const result = await this.toolRuntime.execute('run_command', { command: trimmed });
+        const result = await this.toolRuntime.execute('run_command', { command });
         const body = result.success
           ? (result.output || '(no output)')
-          : (result.error ?? 'command failed');
-        lines.push(`$ ${trimmed}\n${body.slice(0, 4000)}`);
-        this.pushActivity('info', `Verify: ${trimmed}`, body.slice(0, 200));
+          : (result.error ?? result.output ?? 'command failed');
+        return { success: result.success, body };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        lines.push(`$ ${trimmed}\n${msg}`);
+        return { success: false, body: msg };
+      }
+    };
+
+    let { success, body } = await runOnce();
+    this.pushActivity(success ? 'info' : 'error', `Verify: ${command}`, body.slice(0, 200));
+
+    if (!success && isModuleResolutionVerifyFailure(body)) {
+      const installs = [
+        ...plan.installCommands,
+        ...suggestInstallCommandsForVerifyFailure(workspace, body),
+      ];
+      for (const installCmd of installs) {
+        if (installAttempted.has(installCmd)) continue;
+        installAttempted.add(installCmd);
+        this.pushActivity('info', 'Verify: installing dependencies', installCmd);
+        try {
+          const installResult = await this.toolRuntime.execute('run_command', { command: installCmd });
+          const installBody = installResult.success
+            ? (installResult.output || 'install completed')
+            : (installResult.error ?? 'install failed');
+          installLog.push(`$ ${installCmd}\n${installBody.slice(0, 2000)}`);
+          if (installResult.success) {
+            ({ success, body } = await runOnce());
+            this.pushActivity(success ? 'info' : 'error', `Verify retry: ${command}`, body.slice(0, 200));
+            break;
+          }
+        } catch {
+          // try next install strategy
+        }
       }
     }
-    if (plan.skipped.length > 0) {
-      lines.push(`Skipped verify commands:\n${plan.skipped.map((line) => `- ${line}`).join('\n')}`);
-    }
-    return lines.join('\n\n');
+
+    const parts = [...installLog, `$ ${command}\n${body.slice(0, 4000)}`];
+    return parts.join('\n\n');
   }
 
   private getTouchedFilesFromAudit(): string[] {
@@ -1449,6 +1496,9 @@ export class ThunderController {
       this.agentLiveStatus = null;
       this.pendingApprovalOutputs = [];
       this.agentTaskState.reset();
+      this.agentTaskState.setLimits({
+        maxSequentialThinkingCalls: this.configService.getConfig().agent.maxSequentialThinkingCallsPerTurn,
+      });
       this.notifyUi({ agentActivity: [], agentLiveStatus: null, subagents: [] });
     }
 

@@ -1,5 +1,6 @@
 import type { AskScopeResolution, ProjectCatalog } from '../ask/askTypes';
 import { formatProjectCatalog } from '../ask/ProjectCatalog';
+import { formatVerifyPlanForAgent, resolveProjectVerifyCommands } from '../../runtime/verifyCommandDiscovery';
 import type { ActRoute } from './actTypes';
 
 export function buildActPromptContext(
@@ -12,6 +13,7 @@ export function buildActPromptContext(
     suggestedSkills?: string[];
     savedPlanId?: string;
     verifyCommands?: string[];
+    workspaceRoot?: string;
   } = {}
 ): string {
   const lines = [
@@ -26,7 +28,7 @@ export function buildActPromptContext(
     '- Read or search relevant files before writing.',
     '- Keep edits scoped to the user request, active plan, and touched files.',
     '- Prefer targeted patches and preserve unrelated user changes.',
-    '- Run configured or inferred verification after implementation and report remaining issues.',
+    '- Run project-appropriate verification after implementation (discovered from package.json, not hardcoded).',
   ];
 
   if (route.executionPath === 'resume_saved_plan') {
@@ -54,13 +56,13 @@ export function buildActPromptContext(
     lines.push(`Applied skills: ${options.appliedSkills.join(', ')}`);
   }
 
-  if (options.verifyCommands?.length) {
-    lines.push(
-      '',
-      '## Verification commands',
-      'Run these after implementation when the task reaches verification:',
-      ...options.verifyCommands.map((command) => `- ${command}`)
+  if (options.workspaceRoot) {
+    const plan = resolveProjectVerifyCommands(
+      options.workspaceRoot,
+      options.verifyCommands ?? [],
+      { userMessage }
     );
+    lines.push('', formatVerifyPlanForAgent(plan));
   }
 
   if (catalog) {

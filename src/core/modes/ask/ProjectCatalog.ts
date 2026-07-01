@@ -89,6 +89,18 @@ export function formatProjectCatalog(catalog: ProjectCatalog): string {
       `| ${project.id} | ${project.root} | ${project.type} | ${project.entryFiles.join(', ') || '(none)'} | ${Object.keys(project.scripts).join(', ') || '(none)'} |`
     );
   }
+
+  const docsProjects = catalog.projects.filter((p) => p.type === 'docs');
+  if (docsProjects.length > 0) {
+    lines.push('', '## Documentation routing hints');
+    for (const docs of docsProjects) {
+      const routes = discoverDocsRoutes(catalog.workspaceRoot, docs.root);
+      if (routes.length > 0) {
+        lines.push(`### ${docs.root}`, ...routes.map((r) => `- ${r}`));
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -101,12 +113,14 @@ export class ProjectCatalogContextSource implements ContextSource {
     if (!isProjectScopeQuestion(query.text)) return [];
     const catalog = loadProjectCatalog(this.workspaceRoot);
     const content = formatProjectCatalog(catalog);
+    const docsTask = /\b(docs?|docusaurus|sidebar|documentation|mdx|live preview)\b/i.test(query.text);
+    const score = docsTask ? 18 : 12;
     return [{
       id: 'project-catalog',
       source: this.id,
       content,
-      score: 12,
-      reason: 'Detected workspace project catalog',
+      score,
+      reason: docsTask ? 'Docs task — workspace catalog with routing hints' : 'Detected workspace project catalog',
       tokenEstimate: Math.ceil(content.length / 4),
     }];
   }
@@ -238,7 +252,43 @@ function isDirectory(path: string): boolean {
 }
 
 function isProjectScopeQuestion(text: string): boolean {
-  return /\b(project|package|workspace|monorepo|docs|website|extension|app|library|service|scope|where is)\b/i.test(text);
+  return /\b(project|package|workspace|monorepo|docs?|docusaurus|website|extension|app|library|service|scope|where is|sidebar|documentation|form-builder|ffb-mui)\b/i.test(text);
+}
+
+/** Discover top-level docs content areas from sidebars and docs folders. */
+function discoverDocsRoutes(workspaceRoot: string, docsRoot: string): string[] {
+  const absDocs = join(workspaceRoot, docsRoot === '.' ? '' : docsRoot);
+  const hints = new Set<string>();
+
+  const docsDir = join(absDocs, 'docs');
+  if (existsSync(docsDir)) {
+    try {
+      for (const entry of readdirSync(docsDir)) {
+        if (entry.startsWith('.')) continue;
+        const rel = join(docsRoot === '.' ? 'docs' : `${docsRoot}/docs`, entry).replace(/\\/g, '/');
+        hints.add(rel);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  for (const sidebarName of ['sidebars.ts', 'sidebars.js', 'sidebarsFormBuilder.ts', 'sidebarsFFBmui.ts', 'sidebarsCore.ts']) {
+    const sidebarPath = join(absDocs, sidebarName);
+    if (existsSync(sidebarPath)) {
+      hints.add(join(docsRoot === '.' ? '' : docsRoot, sidebarName).replace(/\\/g, '/').replace(/^\//, ''));
+    }
+  }
+
+  const configCandidates = ['docusaurus.config.ts', 'docusaurus.config.js', 'docusaurus.config.mjs'];
+  for (const cfg of configCandidates) {
+    const cfgPath = join(absDocs, cfg);
+    if (existsSync(cfgPath)) {
+      hints.add(join(docsRoot === '.' ? '' : docsRoot, cfg).replace(/\\/g, '/').replace(/^\//, ''));
+    }
+  }
+
+  return [...hints].slice(0, 12);
 }
 
 function toProjectId(value: string): string {

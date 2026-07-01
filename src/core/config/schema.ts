@@ -81,7 +81,9 @@ export const AgentConfigSchema = z.object({
   stepMaxRetries: z.number().int().min(0).max(5).default(2),
   finalValidationEnabled: z.boolean().default(true),
   showDiffPreview: z.boolean().default(false),
-  verifyCommands: z.array(z.string()).default(['npm run lint', 'npm test']),
+  /** Max MCP sequential-thinking calls per user task (0 = unlimited). */
+  maxSequentialThinkingCallsPerTurn: z.number().int().min(0).max(50).default(6),
+  verifyCommands: z.array(z.string()).default([]),
   verifyOnActComplete: z.boolean().default(true),
   planModel: z.string().default(''),
   planBaseUrl: z.string().default(''),

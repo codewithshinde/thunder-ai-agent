@@ -19,6 +19,10 @@ export interface ToolResultRecord {
   timestamp: number;
 }
 
+export interface AgentTaskLimits {
+  maxSequentialThinkingCalls?: number;
+}
+
 export class AgentTaskState {
   private phaseActor: PhaseActor = createPhaseActor();
   private taskKind: TaskKind | undefined;
@@ -28,6 +32,8 @@ export class AgentTaskState {
   private toolResults: ToolResultRecord[] = [];
   private pauseSummary = '';
   private executionToolsUsed = false;
+  private sequentialThinkingCalls = 0;
+  private maxSequentialThinkingCalls = 6;
 
   reset(): void {
     sendPhaseEvent(this.phaseActor, { type: 'RESET' });
@@ -38,6 +44,13 @@ export class AgentTaskState {
     this.toolResults = [];
     this.pauseSummary = '';
     this.executionToolsUsed = false;
+    this.sequentialThinkingCalls = 0;
+  }
+
+  setLimits(limits: AgentTaskLimits): void {
+    if (typeof limits.maxSequentialThinkingCalls === 'number') {
+      this.maxSequentialThinkingCalls = Math.max(0, limits.maxSequentialThinkingCalls);
+    }
   }
 
   setTaskContext(kind: TaskKind, summary: string, originalTask: string): void {
@@ -59,8 +72,14 @@ export class AgentTaskState {
   }
 
   recordToolSuccess(toolName: string, input: Record<string, unknown>, output: string): void {
+    if (isSequentialThinkingTool(toolName)) {
+      this.sequentialThinkingCalls += 1;
+    }
+
     if (['write_file', 'apply_patch'].includes(toolName)) {
       this.executionToolsUsed = true;
+      const editedPath = typeof input.path === 'string' ? input.path : undefined;
+      if (editedPath) this.invalidateReadsForPath(editedPath);
       if (this.getPhase() === 'analyze') {
         sendPhaseEvent(this.phaseActor, { type: 'ADVANCE_EXECUTE' });
       }
@@ -147,7 +166,53 @@ export class AgentTaskState {
       );
     }
 
+    if (toolName === 'read_file') {
+      const path = typeof input.path === 'string' ? input.path : 'file';
+      if (this.getPhase() === 'execute') {
+        return `Already read \`${path}\`. Use cached content below unless the file was edited since.`;
+      }
+      return (
+        `Already read \`${path}\` this session. ` +
+        'Use cached content from chat history before re-reading.'
+      );
+    }
+
+    if (toolName === 'read_files') {
+      const paths = Array.isArray(input.paths)
+        ? input.paths.filter((p): p is string => typeof p === 'string')
+        : [];
+      const label = paths.length <= 2 ? paths.join(', ') : `${paths.length} files`;
+      if (this.getPhase() === 'execute') {
+        return `Already read \`${label}\`. Use cached batch output unless files changed.`;
+      }
+      return (
+        `Already read \`${label}\` this session. ` +
+        'Use cached batch output from chat history.'
+      );
+    }
+
     return null;
+  }
+
+  /** Cap MCP sequential-thinking calls to reduce latency and token burn. */
+  checkMcpCap(toolName: string): string | null {
+    if (!isSequentialThinkingTool(toolName)) return null;
+    if (this.maxSequentialThinkingCalls <= 0) return null;
+    if (this.sequentialThinkingCalls < this.maxSequentialThinkingCalls) return null;
+    return (
+      `Sequential-thinking cap (${this.maxSequentialThinkingCalls}) reached for this task. ` +
+      'Use reasoning from prior thoughts and proceed with read_file, apply_patch, or run_command.'
+    );
+  }
+
+  invalidateReadsForPath(relPath: string): void {
+    const normalized = relPath.replace(/\\/g, '/');
+    this.completedKeys.delete(`read_file:${normalized}`);
+    for (const key of [...this.completedKeys]) {
+      if (key.startsWith('read_files:') && key.includes(normalized)) {
+        this.completedKeys.delete(key);
+      }
+    }
   }
 
   /** Actionable tool output when a redundant diagnostic is skipped (avoids error loops). */
@@ -353,7 +418,15 @@ export function toolKey(toolName: string, input: Record<string, unknown>): strin
     return `list_files:${path}:${recursive}`;
   }
   if (toolName === 'read_file' && typeof input.path === 'string') {
-    return `read_file:${input.path}`;
+    return `read_file:${input.path.replace(/\\/g, '/')}`;
+  }
+  if (toolName === 'read_files' && Array.isArray(input.paths)) {
+    const paths = input.paths
+      .filter((p): p is string => typeof p === 'string')
+      .map((p) => p.replace(/\\/g, '/'))
+      .sort();
+    if (paths.length === 0) return null;
+    return `read_files:${paths.join('|')}`;
   }
   if (toolName === 'execute_workspace_script' && typeof input.script === 'string') {
     return `script:${input.script}`;
@@ -373,6 +446,7 @@ export function normalizeDiagnosticKey(command: string): string | null {
   if (/\beslint\b/.test(cmd)) return cmd.includes('--fix') ? 'eslint:fix' : 'eslint';
   if (/\bnpm\s+(ls|list)\b/.test(cmd)) return 'npm-ls';
   if (/\bdocusaurus\s+build\b/.test(cmd) || /\bnpm\s+run\s+build(?:\s|$)/.test(cmd)) return 'docs-build';
+  if (/\btsc\b/.test(cmd) || /\btypescript\b/.test(cmd)) return 'tsc';
   if (/\bpnpm\s+--filter\s+docs\s+build\b/.test(cmd)) return 'docs-build';
   if (/\bgrep\b|\brg\b/.test(cmd)) return 'grep/rg';
   if (/\bgit\s+diff\b/.test(cmd)) {
@@ -391,6 +465,11 @@ function isPostEditVerificationKey(key: string): boolean {
     key === 'npm-ls' ||
     key === 'git-diff' ||
     key.startsWith('git-diff:');
+}
+
+function isSequentialThinkingTool(toolName: string): boolean {
+  const lower = toolName.toLowerCase();
+  return lower.includes('sequential-thinking') || lower.includes('sequentialthinking');
 }
 
 function phaseInstructions(phase: TaskPhase): string {

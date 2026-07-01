@@ -822,6 +822,25 @@ export function createApplyPatchTool(workspace: string, ignoreService: IgnoreSer
         oldText: input.oldText,
         newText: input.newText,
       });
+      if (!result.success && result.error?.includes('oldText not found')) {
+        getReadFileCache(workspace).delete(relPath);
+        const retry = patchService.apply({
+          path: relPath,
+          oldText: input.oldText,
+          newText: input.newText,
+        });
+        if (retry.success) {
+          if (retry.proposedContent) {
+            updateReadFileCache(workspace, relPath, retry.proposedContent);
+          }
+          return {
+            success: true,
+            output: retry.proposedContent
+              ? `Patch validated after re-read (${retry.proposedContent.length} chars)`
+              : `Patched ${relPath}`,
+          };
+        }
+      }
       if (!result.success) {
         return { success: false, output: '', error: result.error ?? 'Patch failed' };
       }

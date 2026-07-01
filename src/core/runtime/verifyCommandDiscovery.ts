@@ -1,19 +1,48 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
-import { basename, join, resolve } from 'path';
+import { basename, dirname, join, relative, resolve } from 'path';
 import { suggestDocsVerifyCommands } from './mdxRepairRouting';
 
 export interface VerifyCommandPlan {
   commands: string[];
   skipped: string[];
+  /** Human-readable discovery notes for the agent prompt */
+  notes: string[];
+  /** Suggested install commands when deps may be missing */
+  installCommands: string[];
+  /** package.json scripts discovered per package root (workspace-relative) */
+  discoveredScripts: Record<string, string[]>;
 }
 
 export interface VerifyCommandOptions {
   touchedFiles?: string[];
+  userMessage?: string;
 }
 
-const DEFAULT_VERIFY_COMMANDS = new Set(['npm run lint', 'npm test']);
 const PLACEHOLDER_TEST = /no test specified|error:\s*no test|exit\s+1/i;
 
+/** Script names to probe in priority order — only those that exist in package.json are used. */
+const SCRIPT_PROBE_ORDER = [
+  'typecheck',
+  'build:types',
+  'check:types',
+  'lint',
+  'check',
+  'test',
+  'build',
+  'compile',
+  'verify',
+] as const;
+
+const MODULE_RESOLUTION_ERROR =
+  /\b(cannot find module|can't resolve|module not found|enoent.*node_modules|error:\s*can't resolve)\b/i;
+
+const MISSING_BINARY =
+  /\b(command not found|enoent|not recognized as an internal or external command)\b/i;
+
+/**
+ * Resolve verification commands for a task.
+ * Empty `requested` → discover from project manifests and touched files (no hardcoded lint/test).
+ */
 export function resolveProjectVerifyCommands(
   workspace: string,
   requested: string[],
@@ -22,35 +51,257 @@ export function resolveProjectVerifyCommands(
   const trimmed = requested.map((command) => command.trim()).filter(Boolean);
   const skipped: string[] = [];
   const commands: string[] = [];
+  const notes: string[] = [];
+  const installCommands: string[] = [];
   const seenTargets = new Set<string>();
+  const discoveredScripts: Record<string, string[]> = {};
+
+  const touchedFiles = options.touchedFiles ?? [];
   const docsSuggestions = suggestDocsVerifyCommands();
   const docsSuggestionRequest = trimmed.length > 0 && trimmed.every((command) => docsSuggestions.includes(command));
 
   if (docsSuggestionRequest) {
     addFirstResolvedCommand(workspace, docsSuggestions, commands, skipped, seenTargets);
-    return {
-      commands: dedupe(commands),
-      skipped,
-    };
+    notes.push('Using docs build verification candidates from monorepo layout.');
+    return finalizePlan(workspace, commands, skipped, notes, installCommands, discoveredScripts);
   }
 
+  // User/settings requested explicit commands — resolve each against manifests
   for (const command of trimmed) {
     addResolvedCommand(workspace, command, commands, skipped, seenTargets);
   }
 
-  const defaultOnly = trimmed.length === 0 || trimmed.every((command) => DEFAULT_VERIFY_COMMANDS.has(command));
-  if (defaultOnly && touchesDocs(options.touchedFiles ?? [])) {
+  const packageDirs = discoverPackageDirs(workspace, touchedFiles);
+  for (const pkgDir of packageDirs) {
+    const rel = workspaceRelative(workspace, pkgDir);
+    const scripts = listAvailableScripts(pkgDir);
+    if (scripts.length > 0) {
+      discoveredScripts[rel] = scripts;
+    }
+  }
+
+  if (packageDirs.length > 0) {
+    notes.push(`Scanned ${packageDirs.length} package(s) from touched files and workspace layout.`);
+  }
+
+  // Docs touches: prefer docs build when no explicit commands matched
+  const shouldPreferDocs = touchesDocs(touchedFiles) || /\b(docs?|docusaurus|mdx|preview)\b/i.test(options.userMessage ?? '');
+  if (shouldPreferDocs && commands.length === 0) {
     addFirstResolvedCommand(workspace, docsSuggestions, commands, skipped, seenTargets);
+    if (commands.length > 0) {
+      notes.push('Docs-related changes detected — using docs build for verification.');
+    }
   }
 
-  if (commands.length === 0 && defaultOnly) {
-    commands.push(...discoverManifestVerifyCommands(workspace, skipped));
+  // Dynamic discovery when nothing configured or configured scripts were all skipped
+  const needsDiscovery = trimmed.length === 0 || (commands.length === 0 && skipped.length > 0);
+  if (needsDiscovery) {
+    const discovered = discoverVerifyCommandsForPackages(workspace, packageDirs, skipped, seenTargets, touchedFiles);
+    for (const cmd of discovered) {
+      if (!commands.includes(cmd)) commands.push(cmd);
+    }
+    if (discovered.length > 0) {
+      notes.push(`Auto-discovered ${discovered.length} verify command(s) from package.json scripts.`);
+    }
   }
 
+  if (commands.length === 0) {
+    const fallback = discoverManifestVerifyCommands(workspace, skipped);
+    for (const cmd of fallback) {
+      if (!commands.includes(cmd)) commands.push(cmd);
+    }
+    if (fallback.length > 0) {
+      notes.push('Fell back to workspace-root manifest verification.');
+    }
+  }
+
+  if (commands.length === 0 && skipped.length > 0) {
+    notes.push('No runnable verify scripts found — read package.json and run the closest available check.');
+  }
+
+  const pm = packageManagerCommand(workspace);
+  if (!existsSync(join(workspace, 'node_modules'))) {
+    installCommands.push(`${pm} install`);
+    notes.push('node_modules missing at workspace root — install dependencies before verify.');
+  }
+
+  return finalizePlan(workspace, commands, skipped, notes, installCommands, discoveredScripts);
+}
+
+/** Format discovery results for injection into agent verify prompts. */
+export function formatVerifyPlanForAgent(plan: VerifyCommandPlan): string {
+  const lines = [
+    '## Project verification plan (discovered on the fly)',
+    'Do NOT assume npm run lint or npm test exist. Use only commands listed below or read package.json first.',
+  ];
+
+  if (plan.notes.length > 0) {
+    lines.push('', '### Discovery notes', ...plan.notes.map((n) => `- ${n}`));
+  }
+
+  if (Object.keys(plan.discoveredScripts).length > 0) {
+    lines.push('', '### Available scripts by package');
+    for (const [pkg, scripts] of Object.entries(plan.discoveredScripts)) {
+      lines.push(`- **${pkg}**: ${scripts.join(', ')}`);
+    }
+  }
+
+  if (plan.commands.length > 0) {
+    lines.push('', '### Commands to run (in order)', ...plan.commands.map((c) => `- \`${c}\``));
+  } else {
+    lines.push('', '### Commands to run', '- Read package.json scripts in the touched package(s), then run the narrowest applicable check.');
+  }
+
+  if (plan.skipped.length > 0) {
+    lines.push('', '### Skipped (not available in this project)', ...plan.skipped.map((s) => `- ${s}`));
+  }
+
+  if (plan.installCommands.length > 0) {
+    lines.push(
+      '',
+      '### Dependency install (if verify fails with module resolution errors)',
+      ...plan.installCommands.map((c) => `- \`${c}\` then retry the failed verify command`),
+    );
+  }
+
+  lines.push(
+    '',
+    '### Verify policy',
+    '- If a command fails with "Cannot find module" or "Can\'t resolve", run install from the monorepo root, then retry.',
+    '- If a script does not exist, do not invent it — pick another available script or report the gap.',
+    '- Prefer package-scoped commands (cd packages/foo && npm run build:types) over root guesses.',
+  );
+
+  return lines.join('\n');
+}
+
+/** Suggest install commands when verify output indicates missing deps. */
+export function suggestInstallCommandsForVerifyFailure(
+  workspace: string,
+  commandOutput: string
+): string[] {
+  if (!MODULE_RESOLUTION_ERROR.test(commandOutput) && !MISSING_BINARY.test(commandOutput)) {
+    return [];
+  }
+  const pm = packageManagerCommand(workspace);
+  const commands = [`${pm} install`];
+  if (existsSync(join(workspace, 'pnpm-workspace.yaml')) && pm === 'pnpm') {
+    commands.push('pnpm install -r');
+  }
+  return dedupe(commands);
+}
+
+export function isModuleResolutionVerifyFailure(output: string): boolean {
+  return MODULE_RESOLUTION_ERROR.test(output);
+}
+
+function finalizePlan(
+  workspace: string,
+  commands: string[],
+  skipped: string[],
+  notes: string[],
+  installCommands: string[],
+  discoveredScripts: Record<string, string[]>
+): VerifyCommandPlan {
+  void workspace;
   return {
     commands: dedupe(commands),
     skipped,
+    notes,
+    installCommands: dedupe(installCommands),
+    discoveredScripts,
   };
+}
+
+function discoverPackageDirs(workspace: string, touchedFiles: string[]): string[] {
+  const dirs = new Set<string>();
+  const root = resolve(workspace);
+
+  for (const file of touchedFiles) {
+    let dir = resolve(root, dirname(file));
+    while (dir.startsWith(root)) {
+      if (existsSync(join(dir, 'package.json'))) {
+        dirs.add(dir);
+        break;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  if (dirs.size === 0 && existsSync(join(root, 'package.json'))) {
+    dirs.add(root);
+  }
+
+  // Include apps/docs when docs paths touched but package not found walking up
+  for (const file of touchedFiles) {
+    const match = file.match(/^(apps\/docs|docs)\//);
+    if (match) {
+      const docsPkg = join(root, match[1] === 'docs' ? 'docs' : 'apps/docs');
+      if (existsSync(join(docsPkg, 'package.json'))) dirs.add(docsPkg);
+    }
+  }
+
+  return [...dirs];
+}
+
+function listAvailableScripts(pkgDir: string): string[] {
+  const pkg = readPackageJson(pkgDir);
+  if (!pkg?.scripts) return [];
+  return Object.keys(pkg.scripts).filter((name) => {
+    if (name === 'test' && PLACEHOLDER_TEST.test(pkg.scripts![name] ?? '')) return false;
+    return true;
+  });
+}
+
+function discoverVerifyCommandsForPackages(
+  workspace: string,
+  packageDirs: string[],
+  skipped: string[],
+  seenTargets: Set<string>,
+  touchedFiles: string[] = []
+): string[] {
+  const commands: string[] = [];
+  const dirs = packageDirs.length > 0 ? packageDirs : [workspace];
+
+  for (const pkgDir of dirs) {
+    const pkg = readPackageJson(pkgDir);
+    if (!pkg?.scripts) continue;
+
+    const rel = workspaceRelative(workspace, pkgDir);
+    const pm = packageManagerCommand(pkgDir);
+    const relPrefix = rel && rel !== '.' ? `cd ${rel} && ` : '';
+
+    for (const script of probeOrderForPackage(pkgDir, rel, touchedFiles)) {
+      if (!(script in pkg.scripts)) continue;
+      const cmd = script === 'test'
+        ? `${relPrefix}${pm} test`
+        : `${relPrefix}${pm} run ${script}`;
+      if (addResolvedCommand(workspace, cmd, commands, skipped, seenTargets)) {
+        break;
+      }
+    }
+  }
+
+  return commands;
+}
+
+function workspaceRelative(workspace: string, absDir: string): string {
+  const rel = relative(resolve(workspace), resolve(absDir)).replace(/\\/g, '/');
+  return rel === '' ? '.' : rel;
+}
+
+function probeOrderForPackage(pkgDir: string, rel: string, touchedFiles: string[]): readonly string[] {
+  const pkg = readPackageJson(pkgDir);
+  const scripts = pkg?.scripts ?? {};
+  const isDocs =
+    /docs|docusaurus/i.test(rel) ||
+    touchesDocs(touchedFiles.filter((f) => f.startsWith(rel.replace(/^\.\/?/, ''))));
+  if (isDocs && 'build' in scripts) {
+    return ['build', 'typecheck', 'build:types', 'lint', 'check', 'test', 'compile', 'verify'];
+  }
+  return SCRIPT_PROBE_ORDER;
 }
 
 function addResolvedCommand(
@@ -159,7 +410,7 @@ function discoverManifestVerifyCommands(workspace: string, skipped: string[]): s
   const pkg = readPackageJson(workspace);
   if (pkg) {
     const packageRunner = packageManagerCommand(workspace);
-    for (const script of ['lint', 'typecheck', 'test', 'check']) {
+    for (const script of SCRIPT_PROBE_ORDER) {
       const decision = packageScriptDecision(workspace, script);
       if (decision.run) {
         commands.push(script === 'test' ? `${packageRunner} test` : `${packageRunner} run ${script}`);

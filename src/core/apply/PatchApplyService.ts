@@ -335,9 +335,11 @@ function findFuzzyReplacement(
 function normalizePatchText(text: string): string {
   return text
     .replace(/\r\n/g, '\n')
+    .replace(/\t/g, '  ')
     .split('\n')
     .map((line) => line.trimEnd())
     .join('\n')
+    .replace(/[ \u00a0]+/g, ' ')
     .trim();
 }
 

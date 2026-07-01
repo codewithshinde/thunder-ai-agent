@@ -541,7 +541,8 @@ export function buildStepPrompt(
   contextPack: ContextPack,
   plan: ThunderPlan,
   step: ThunderPlan['steps'][number],
-  priorSummaries: string[] = []
+  priorSummaries: string[] = [],
+  verifyContextBlock?: string
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
   const completed = plan.steps.filter((s) => s.status === 'done').map((s) => s.title);
@@ -557,6 +558,8 @@ export function buildStepPrompt(
     priorSummaries.length > 0
       ? `\n## Work completed so far\n${priorSummaries.map((s) => `- ${s}`).join('\n')}\n`
       : '';
+
+  const verifyBlock = verifyContextBlock ? `\n\n${verifyContextBlock}\n` : '';
 
   return [
     {
@@ -576,7 +579,7 @@ ${pending.map((s) => `- ${s}`).join('\n')}
 ## Current step (execute NOW)
 **${step.title}**${objective}${step.files?.length ? `\nFiles: ${step.files.join(', ')}` : ''}${tools}${successCriteria}${phase}
 Risk: ${step.risk}
-
+${verifyBlock}
 ## Codebase Context
 ${contextBlock}
 
@@ -591,13 +594,16 @@ export function buildStepRetryPrompt(
   plan: ThunderPlan,
   step: ThunderPlan['steps'][number],
   priorSummaries: string[],
-  validationErrors: string[]
+  validationErrors: string[],
+  verifyContextBlock?: string
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
   const objective = step.objective ? `\nObjective: ${step.objective}` : '';
   const successCriteria = step.successCriteria?.length
     ? `\nSuccess criteria:\n${step.successCriteria.map((criterion) => `- ${criterion}`).join('\n')}`
     : '';
+
+  const verifyBlock = verifyContextBlock ? `\n\n${verifyContextBlock}\n` : '';
 
   return [
     {
@@ -614,7 +620,7 @@ ${priorSummaries.map((s) => `- ${s}`).join('\n')}
 ## RETRY — fix validation errors from previous attempt
 **${step.title}**${objective}${step.files?.length ? `\nFiles: ${step.files.join(', ')}` : ''}${successCriteria}
 ${step.phase ? `Phase lock: ${step.phase}\n` : ''}
-
+${verifyBlock}
 ### Errors to fix
 ${validationErrors.join('\n\n')}
 
@@ -632,13 +638,18 @@ export function buildFinalValidationPrompt(
   plan: ThunderPlan,
   stepSummaries: string[],
   touchedFiles: string[],
-  existingErrors: string[]
+  existingErrors: string[],
+  verifyContextBlock?: string
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
   const errorBlock =
     existingErrors.length > 0
       ? `\n\n## Known errors (fix these)\n${existingErrors.join('\n\n')}`
       : '';
+
+  const verifyBlock = verifyContextBlock
+    ? `\n\n${verifyContextBlock}\n`
+    : '\n\nRead package.json scripts in touched package(s) before running verify — do NOT assume npm run lint exists.\n';
 
   return [
     {
@@ -655,16 +666,17 @@ ${stepSummaries.map((s) => `- ${s}`).join('\n')}
 ## Files modified
 ${touchedFiles.length ? touchedFiles.map((f) => `- ${f}`).join('\n') : '(none tracked)'}
 ${errorBlock}
-
+${verifyBlock}
 ## Codebase Context
 ${contextBlock}
 
 ## Final validation (execute NOW)
 1. Run diagnostics on all modified files (use diagnostics tool).
-2. Run relevant tests/lint/build (run_command) if applicable.
-3. Fix errors only when they are caused by the files you modified or the current task.
-4. If TypeScript reports unrelated/pre-existing errors, log them under remaining issues and do not restart or pivot away from the cleanup plan.
-5. Summarize: what was done, test results, any remaining issues.
+2. Run the discovered verification commands below (or read package.json and pick the narrowest applicable script).
+3. If verify fails with module resolution errors, run install from the monorepo root and retry once.
+4. Fix errors only when they are caused by the files you modified or the current task.
+5. If TypeScript reports unrelated/pre-existing errors, log them under remaining issues and do not restart or pivot away from the cleanup plan.
+6. Summarize: what was done, test results, any remaining issues.
 
 Do NOT skip verification — call tools now.`,
     },

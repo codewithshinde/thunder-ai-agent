@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.7.12",
+  "version": "2.7.13",
   "publisher": "mitii",
   "icon": "media/mitii-short-logo.png",
   "license": "AGPL-3.0-or-later",
@@ -424,19 +424,16 @@
         },
         "thunder.agent.verifyCommands": {
           "type": "array",
-          "default": [
-            "npm run lint",
-            "npm test"
-          ],
+          "default": [],
           "items": {
             "type": "string"
           },
-          "description": "Read-only shell commands to run at the end of Act-mode agent runs (e.g. lint, test)."
+          "description": "Optional shell commands to run after Act-mode completes. Leave empty to auto-discover from package.json scripts (typecheck, lint, test, build) based on touched files."
         },
         "thunder.agent.verifyOnActComplete": {
           "type": "boolean",
           "default": true,
-          "description": "Run thunder.agent.verifyCommands after Act-mode agent runs complete."
+          "description": "After Act-mode runs, discover and run project-appropriate verification (package.json scripts). Uses verifyCommands when set; otherwise auto-discovers."
         },
         "thunder.agent.planModel": {
           "type": "string",

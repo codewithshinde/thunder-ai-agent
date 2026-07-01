@@ -5,6 +5,7 @@ import { formatToolResult } from '../tools/builtinTools';
 import { NO_TOOLS_AUDIT_NUDGE } from './taskKind';
 import { NO_TOOLS_ASK_NUDGE, ASK_SYNTHESIS_NUDGE, isGroundingToolCall } from './askMode';
 import { NO_TOOLS_PLAN_NUDGE, PLAN_SYNTHESIS_NUDGE, isPlanGroundingToolCall } from '../modes/plan/planMode';
+import { isSkippedToolOutput } from './toolSkip';
 import type { PlanPhase, ThunderPlan } from '../plans/PlanActEngine';
 import { isPhaseLockRunCommandError, isPhaseLockWriteError } from '../plans/PlanActEngine';
 import { buildPlanTrackerPacket } from '../plans/PlanFileStore';
@@ -273,12 +274,11 @@ export class AgentLoop {
           continue;
         }
 
-        const output = execResult.success
-          ? execResult.output
-          : (execResult.error ?? 'Tool failed');
+        const { isSkipped, output, success: toolSuccess } = resolveToolOutput(execResult);
 
         if (
           !execResult.success &&
+          !isSkipped &&
           ['write_file', 'apply_patch'].includes(tc.function.name) &&
           isPhaseLockWriteError(execResult.error)
         ) {
@@ -286,18 +286,24 @@ export class AgentLoop {
         }
         if (
           !execResult.success &&
+          !isSkipped &&
           tc.function.name === 'run_command' &&
           isPhaseLockRunCommandError(execResult.error)
         ) {
           phaseLockRunCommandFailuresThisTurn += 1;
         }
 
-        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500), durationMs);
+        callbacks?.onToolEnd?.(
+          tc.function.name,
+          toolSuccess,
+          isSkipped ? output : output.slice(0, 500),
+          durationMs
+        );
 
         let toolContent = formatToolResult(tc.function.name, {
-          success: execResult.success,
-          output: execResult.output,
-          error: execResult.error,
+          success: toolSuccess,
+          output: isSkipped ? output : execResult.output,
+          error: isSkipped ? undefined : execResult.error,
         });
 
         if (
@@ -617,24 +623,28 @@ export class AgentLoop {
           continue;
         }
 
-        const output = execResult.success
-          ? execResult.output
-          : (execResult.error ?? 'Tool failed');
+        const { isSkipped, output, success: toolSuccess } = resolveToolOutput(execResult);
 
         if (
           !execResult.success &&
+          !isSkipped &&
           tc.function.name === 'run_command' &&
           isPhaseLockRunCommandError(execResult.error)
         ) {
           phaseLockRunCommandFailuresThisTurn += 1;
         }
 
-        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500), durationMs);
+        callbacks?.onToolEnd?.(
+          tc.function.name,
+          toolSuccess,
+          isSkipped ? output : output.slice(0, 500),
+          durationMs
+        );
 
         let toolContent = formatToolResult(tc.function.name, {
-          success: execResult.success,
-          output: execResult.output,
-          error: execResult.error,
+          success: toolSuccess,
+          output: isSkipped ? output : execResult.output,
+          error: isSkipped ? undefined : execResult.error,
         });
 
         if (
@@ -781,27 +791,31 @@ export class AgentLoop {
           continue;
         }
 
-        const output = execResult.success
-          ? execResult.output
-          : (execResult.error ?? 'Tool failed');
+        const { isSkipped, output, success: toolSuccess } = resolveToolOutput(execResult);
 
         if (
           !execResult.success &&
+          !isSkipped &&
           tc.function.name === 'run_command' &&
           isPhaseLockRunCommandError(execResult.error)
         ) {
           phaseLockRunCommandFailuresThisTurn += 1;
         }
 
-        callbacks?.onToolEnd?.(tc.function.name, execResult.success, output.slice(0, 500), durationMs);
+        callbacks?.onToolEnd?.(
+          tc.function.name,
+          toolSuccess,
+          isSkipped ? output : output.slice(0, 500),
+          durationMs
+        );
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,
           name: tc.function.name,
           content: formatToolResult(tc.function.name, {
-            success: execResult.success,
-            output: execResult.output,
-            error: execResult.error,
+            success: toolSuccess,
+            output: isSkipped ? output : execResult.output,
+            error: isSkipped ? undefined : execResult.error,
           }),
         });
       }
@@ -988,6 +1002,26 @@ export function needsReadOnlySynthesis(messages: ChatMessage[]): boolean {
     return true;
   }
   return false;
+}
+
+function resolveToolOutput(execResult: import('../safety/ToolExecutor').ToolExecutionResult): {
+  isSkipped: boolean;
+  output: string;
+  success: boolean;
+} {
+  const isSkipped = Boolean(execResult.skipped) ||
+    isSkippedToolOutput(execResult.output) ||
+    isSkippedToolOutput(execResult.error);
+  const output = execResult.success
+    ? execResult.output
+    : isSkipped
+      ? (execResult.output || execResult.error || 'Skipped redundant tool call')
+      : (execResult.error ?? 'Tool failed');
+  return {
+    isSkipped,
+    output,
+    success: execResult.success || isSkipped,
+  };
 }
 
 function repeatedToolInputFailureKey(toolName: string, output: string): string | undefined {

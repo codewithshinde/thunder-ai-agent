@@ -131,6 +131,12 @@ export function pathExistenceVariants(relPath: string): string[] {
   const variants = new Set<string>([relPath]);
   if (relPath.endsWith('.js')) variants.add(relPath.replace(/\.js$/, '.ts'));
   if (relPath.endsWith('.ts')) variants.add(relPath.replace(/\.ts$/, '.js'));
+  if (relPath.endsWith('.mjs')) variants.add(relPath.replace(/\.mjs$/, '.ts'));
+  if (relPath.endsWith('.cjs')) variants.add(relPath.replace(/\.cjs$/, '.ts'));
+  if (relPath.endsWith('.ts')) {
+    variants.add(relPath.replace(/\.ts$/, '.mjs'));
+    variants.add(relPath.replace(/\.ts$/, '.js'));
+  }
   if (relPath.endsWith('.jsx')) variants.add(relPath.replace(/\.jsx$/, '.tsx'));
   if (relPath.endsWith('.tsx')) variants.add(relPath.replace(/\.tsx$/, '.jsx'));
   if (relPath.endsWith('.md')) variants.add(relPath.replace(/\.md$/, '.mdx'));
