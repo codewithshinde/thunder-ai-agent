@@ -125,6 +125,9 @@ describe('Act orchestration boundary', () => {
     const tools = [
       tool('read_file'),
       tool('apply_patch'),
+      tool('mcp__filesystem__read_file'),
+      tool('mcp__filesystem__write_file'),
+      tool('mcp__filesystem__move_file'),
       tool('mark_step_complete'),
       tool('propose_plan_mutation'),
     ];
@@ -132,6 +135,7 @@ describe('Act orchestration boundary', () => {
     expect(filterActModeTools(tools).map((item) => item.function.name)).toEqual([
       'read_file',
       'apply_patch',
+      'mcp__filesystem__read_file',
     ]);
   });
 });

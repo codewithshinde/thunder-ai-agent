@@ -173,7 +173,13 @@ export class ToolExecutor {
       command: typeof input.command === 'string' ? input.command : undefined,
       inputPreview,
     });
-    this.sessionLog?.appendDebug('tool_start', toolName, { toolCallId, tool: toolName, toolName, input });
+    this.sessionLog?.appendDebug('info', `debug tool_start ${toolName}`, {
+      eventType: 'tool_start',
+      toolCallId,
+      tool: toolName,
+      toolName,
+      input,
+    });
     this.sessionLog?.append('tool_end', toolName, {
       toolCallId,
       tool: toolName,
@@ -187,7 +193,8 @@ export class ToolExecutor {
       outputPreview: output.slice(0, 500),
       error,
     });
-    this.sessionLog?.appendDebug('tool_end', toolName, {
+    this.sessionLog?.appendDebug('info', `debug tool_end ${toolName}`, {
+      eventType: 'tool_end',
       toolCallId,
       tool: toolName,
       toolName,

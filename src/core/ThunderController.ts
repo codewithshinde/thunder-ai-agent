@@ -401,7 +401,8 @@ export class ThunderController {
         new OpenFilesContextSource(workspace),
       ],
       createContextReranker(),
-      this.rerankerConfigFromSettings()
+      this.rerankerConfigFromSettings(),
+      (timing) => this.logRetrievalTiming(timing)
     );
     this.chatOrchestrator = this.createChatOrchestrator(retriever, new ContextBudgeter(), undefined, workspace);
     log.info('Minimal chat orchestrator initialized');
@@ -763,7 +764,21 @@ export class ThunderController {
       config.indexing.vectorsEnabled && config.indexing.embeddingProvider === 'minilm'
     );
 
-    return new HybridRetriever(sources, reranker, this.rerankerConfigFromSettings());
+    return new HybridRetriever(
+      sources,
+      reranker,
+      this.rerankerConfigFromSettings(),
+      (timing) => this.logRetrievalTiming(timing)
+    );
+  }
+
+  private logRetrievalTiming(timing: import('./context/HybridRetriever').ContextRetrievalTiming | import('./context/HybridRetriever').RerankTiming): void {
+    if (!this.sessionLog.isDebugMetricsEnabled()) return;
+    if ('candidateCount' in timing) {
+      this.sessionLog.appendTiming('context_reranker', timing.durationMs, { ...timing });
+      return;
+    }
+    this.sessionLog.appendTiming(`context_source:${timing.source}`, timing.durationMs, { ...timing });
   }
 
   private setupFileWatcher(workspace: string): void {

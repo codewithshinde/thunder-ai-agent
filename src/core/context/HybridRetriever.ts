@@ -20,11 +20,32 @@ export interface RerankerConfig {
   topK: number;
 }
 
+export interface ContextRetrievalTiming {
+  source: string;
+  durationMs: number;
+  success: boolean;
+  itemCount: number;
+  tier: number;
+  error?: string;
+}
+
+export interface RerankTiming {
+  source: 'reranker';
+  durationMs: number;
+  success: boolean;
+  candidateCount: number;
+  resultCount: number;
+  error?: string;
+}
+
+export type RetrievalTimingCallback = (timing: ContextRetrievalTiming | RerankTiming) => void;
+
 export class HybridRetriever {
   constructor(
     private readonly sources: ContextSource[],
     private readonly reranker?: ContextReranker,
-    private readonly rerankerConfig?: RerankerConfig
+    private readonly rerankerConfig?: RerankerConfig,
+    private readonly onTiming?: RetrievalTimingCallback
   ) {}
 
   async retrieve(query: ContextQuery): Promise<ContextItem[]> {
@@ -48,20 +69,34 @@ export class HybridRetriever {
     }
 
     const allItems: ContextItem[] = [];
-    for (const tierSources of chunkByTier(orderedSources)) {
+    const tiers = chunkByTier(orderedSources);
+    for (let tierIndex = 0; tierIndex < tiers.length; tierIndex++) {
+      const tierSources = tiers[tierIndex];
       const tierResults = await Promise.allSettled(
-        tierSources.map((source) => retrieveWithTimeout(source, query, SOURCE_TIMEOUT_MS))
+        tierSources.map((source) => retrieveWithTiming(source, query, SOURCE_TIMEOUT_MS, tierIndex + 1))
       );
 
       for (let i = 0; i < tierResults.length; i++) {
         const result = tierResults[i];
         const source = tierSources[i];
         if (result.status === 'fulfilled') {
-          allItems.push(...result.value);
+          this.onTiming?.(result.value.timing);
+          allItems.push(...result.value.items);
         } else {
+          const reason = result.reason as { durationMs?: unknown; error?: unknown };
+          const durationMs = typeof reason.durationMs === 'number' ? reason.durationMs : 0;
+          const error = reason.error ?? result.reason;
+          this.onTiming?.({
+            source: source.id,
+            durationMs,
+            success: false,
+            itemCount: 0,
+            tier: tierIndex + 1,
+            error: error instanceof Error ? error.message : String(error),
+          });
           log.warn('Context source failed', {
             source: source.id,
-            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+            error: error instanceof Error ? error.message : String(error),
           });
         }
       }
@@ -71,12 +106,33 @@ export class HybridRetriever {
 
     if (this.reranker && this.rerankerConfig?.enabled) {
       const pool = deduped.slice(0, this.rerankerConfig.candidatePool);
-      const reranked = await this.reranker.rerank(
-        query.text,
-        pool,
-        this.rerankerConfig.topK
-      );
-      return reranked.slice(0, query.maxItems ?? this.rerankerConfig.topK);
+      const startedAt = Date.now();
+      try {
+        const reranked = await this.reranker.rerank(
+          query.text,
+          pool,
+          this.rerankerConfig.topK
+        );
+        const sliced = reranked.slice(0, query.maxItems ?? this.rerankerConfig.topK);
+        this.onTiming?.({
+          source: 'reranker',
+          durationMs: Date.now() - startedAt,
+          success: true,
+          candidateCount: pool.length,
+          resultCount: sliced.length,
+        });
+        return sliced;
+      } catch (error) {
+        this.onTiming?.({
+          source: 'reranker',
+          durationMs: Date.now() - startedAt,
+          success: false,
+          candidateCount: pool.length,
+          resultCount: 0,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     }
 
     return deduped.slice(0, query.maxItems ?? 30);
@@ -103,24 +159,35 @@ function chunkByTier(sources: ContextSource[]): ContextSource[][] {
   return tiers;
 }
 
-async function retrieveWithTimeout(
+async function retrieveWithTiming(
   source: ContextSource,
   query: ContextQuery,
-  timeoutMs: number
-): Promise<ContextItem[]> {
-  return new Promise<ContextItem[]>((resolve, reject) => {
+  timeoutMs: number,
+  tier: number
+): Promise<{ items: ContextItem[]; timing: ContextRetrievalTiming }> {
+  const startedAt = Date.now();
+  return new Promise<{ items: ContextItem[]; timing: ContextRetrievalTiming }>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`timeout after ${timeoutMs}ms`));
+      reject({ error: new Error(`timeout after ${timeoutMs}ms`), durationMs: Date.now() - startedAt });
     }, timeoutMs);
 
     source.retrieve(query)
       .then((items) => {
         clearTimeout(timer);
-        resolve(items);
+        resolve({
+          items,
+          timing: {
+            source: source.id,
+            durationMs: Date.now() - startedAt,
+            success: true,
+            itemCount: items.length,
+            tier,
+          },
+        });
       })
       .catch((error) => {
         clearTimeout(timer);
-        reject(error);
+        reject({ error, durationMs: Date.now() - startedAt });
       });
   });
 }

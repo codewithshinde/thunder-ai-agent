@@ -25,6 +25,8 @@ For targeted inspection, use read_file/search instead of shell. If verification 
 const VALIDATION_BLOCK_MESSAGE =
   'Post-edit validation found errors. Fix all reported issues before marking this step complete or moving on.';
 
+const REPEATED_TOOL_INPUT_FAILURE_PREFIX = 'Stopped after repeated invalid tool arguments';
+
 export interface PostWriteValidationResult {
   message?: string;
   hasErrors: boolean;
@@ -123,6 +125,8 @@ export class AgentLoop {
     let totalSteps = 0;
     let phaseLockWriteFailures = 0;
     let phaseLockRunCommandFailures = 0;
+    let lastInputFailureKey = '';
+    let repeatedInputFailureCount = 0;
     const hardLimit = maxSteps + maxAutoContinues * maxSteps;
 
     const readOnlyMode = Boolean(options?.askMode || options?.planMode);
@@ -248,6 +252,7 @@ export class AgentLoop {
       let phaseLockFailuresThisTurn = 0;
       let phaseLockRunCommandFailuresThisTurn = 0;
       let postWriteValidationFailed = false;
+      let repeatedInputFailureStop: string | undefined;
 
       for (const { tc, input, execResult, durationMs } of executions) {
         if (signal?.aborted) break;
@@ -318,6 +323,28 @@ export class AgentLoop {
           name: tc.function.name,
           content: toolContent,
         });
+
+        const inputFailureKey = !execResult.success
+          ? repeatedToolInputFailureKey(tc.function.name, output)
+          : undefined;
+        if (inputFailureKey) {
+          if (inputFailureKey === lastInputFailureKey) {
+            repeatedInputFailureCount += 1;
+          } else {
+            lastInputFailureKey = inputFailureKey;
+            repeatedInputFailureCount = 1;
+          }
+          if (repeatedInputFailureCount >= 2) {
+            repeatedInputFailureStop = buildRepeatedToolInputFailureMessage(
+              tc.function.name,
+              output,
+              repeatedInputFailureCount
+            );
+          }
+        } else if (execResult.success || !isRetriableToolFailure(output)) {
+          lastInputFailureKey = '';
+          repeatedInputFailureCount = 0;
+        }
       }
 
       if (postWriteValidationFailed) {
@@ -337,6 +364,12 @@ export class AgentLoop {
           messages.push({ role: 'user', content: PHASE_LOCK_RUN_COMMAND_ESCALATION });
           phaseLockRunCommandFailures = 0;
         }
+      }
+
+      if (repeatedInputFailureStop) {
+        messages.push({ role: 'assistant', content: repeatedInputFailureStop });
+        yield repeatedInputFailureStop;
+        break;
       }
 
       if (pendingApproval) {
@@ -955,4 +988,32 @@ export function needsReadOnlySynthesis(messages: ChatMessage[]): boolean {
     return true;
   }
   return false;
+}
+
+function repeatedToolInputFailureKey(toolName: string, output: string): string | undefined {
+  if (!isToolInputValidationFailure(output)) return undefined;
+  return `${toolName}:${normalizeToolFailure(output)}`;
+}
+
+function isToolInputValidationFailure(output: string): boolean {
+  return /\b(input validation error|invalid input|invalid arguments for tool|expected .* received undefined)\b/i.test(output);
+}
+
+function isRetriableToolFailure(output: string): boolean {
+  return isToolInputValidationFailure(output);
+}
+
+function normalizeToolFailure(output: string): string {
+  return output.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function buildRepeatedToolInputFailureMessage(toolName: string, output: string, count: number): string {
+  const detail = normalizeToolFailure(output).slice(0, 320);
+  return [
+    `\n\n### ${REPEATED_TOOL_INPUT_FAILURE_PREFIX}`,
+    '',
+    `The agent stopped after ${count} consecutive invalid \`${toolName}\` calls. The tool rejected the arguments before execution: ${detail}`,
+    '',
+    'I will not keep retrying the same malformed tool call. The next attempt should use a registered tool with all required arguments, or explain the blocker instead.',
+  ].join('\n');
 }

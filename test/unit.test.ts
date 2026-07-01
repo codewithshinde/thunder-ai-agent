@@ -1776,6 +1776,36 @@ describe('HybridRetriever reranker', () => {
     expect(results.length).toBe(3);
     expect(results.some((r) => r.content.includes('auth'))).toBe(true);
   });
+
+  it('emits source and reranker timings', async () => {
+    const { HybridRetriever } = await import('../src/core/context/HybridRetriever');
+    const { LexicalContextReranker } = await import('../src/core/context/ContextReranker');
+    const timings: Array<{ source: string; success: boolean }> = [];
+    const retriever = new HybridRetriever(
+      [{
+        id: 'mock',
+        async retrieve() {
+          return [{
+            id: 'item-1',
+            source: 'fts',
+            content: 'auth token',
+            score: 1,
+            reason: 'mock',
+            tokenEstimate: 5,
+          }];
+        },
+      }],
+      new LexicalContextReranker(),
+      { enabled: true, candidatePool: 10, topK: 1 },
+      (timing) => timings.push(timing)
+    );
+
+    const results = await retriever.retrieve({ text: 'auth token', maxItems: 1 });
+
+    expect(results.length).toBe(1);
+    expect(timings.some((timing) => timing.source === 'mock' && timing.success)).toBe(true);
+    expect(timings.some((timing) => timing.source === 'reranker' && timing.success)).toBe(true);
+  });
 });
 
 describe('MemoryService FTS', () => {
@@ -1869,8 +1899,12 @@ describe('SessionLogService', () => {
       expect(result.success).toBe(true);
 
       const lines = readFileSync(log.getLogPath(), 'utf-8').trim().split('\n').map((line) => JSON.parse(line));
-      const start = lines.find((event) => event.type === 'tool_start');
-      const end = lines.find((event) => event.type === 'tool_end');
+      const starts = lines.filter((event) => event.type === 'tool_start');
+      const ends = lines.filter((event) => event.type === 'tool_end');
+      const start = starts[0];
+      const end = ends[0];
+      expect(starts.length).toBe(1);
+      expect(ends.length).toBe(1);
       expect(start.data.toolCallId).toEqual(expect.any(String));
       expect(end.data.toolCallId).toBe(start.data.toolCallId);
       expect(start.data.toolName).toBe('run_command');
@@ -1879,6 +1913,8 @@ describe('SessionLogService', () => {
       expect(end.data.durationMs).toEqual(expect.any(Number));
       expect(end.data.inputPreview).toContain('npm test');
       expect(end.data.outputPreview).toContain('ran npm test');
+      expect(lines.some((event) => event.type === 'info' && event.data?.eventType === 'tool_start')).toBe(true);
+      expect(lines.some((event) => event.type === 'info' && event.data?.eventType === 'tool_end')).toBe(true);
       expect(log.exportSummary()).toContain('## Tool calls');
     } finally {
       rmSync(dir, { recursive: true, force: true });

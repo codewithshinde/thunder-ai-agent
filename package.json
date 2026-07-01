@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.7.7",
+  "version": "2.7.8",
   "publisher": "mitii",
   "icon": "media/mitii-short-logo.png",
   "license": "AGPL-3.0-or-later",
@@ -301,6 +301,23 @@
           "type": "boolean",
           "default": true,
           "description": "Show Mitii commit-message generation in VS Code Source Control."
+        },
+        "thunder.github.issueFetchEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fetch structured GitHub issue context when a chat message contains a github.com owner/repo/issues URL and network access is allowed."
+        },
+        "thunder.github.issueCommentLimit": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "maximum": 25,
+          "description": "Maximum number of GitHub issue comments to include in injected issue context."
+        },
+        "thunder.github.tokenRef": {
+          "type": "string",
+          "default": "thunder.github.token",
+          "description": "VS Code SecretStorage key for an optional GitHub token used to fetch private issues. The token itself is not stored in settings."
         },
         "thunder.agent.subagentsEnabled": {
           "type": "boolean",

@@ -98,7 +98,8 @@ export class ToolRuntime {
       ...extractToolLocator(input),
       inputPreview: previewValue(input),
     });
-    this.sessionLog?.appendDebug('tool_start', name, {
+    this.sessionLog?.appendDebug('info', `debug tool_start ${name}`, {
+      eventType: 'tool_start',
       toolCallId,
       tool: name,
       toolName: name,
@@ -128,7 +129,8 @@ export class ToolRuntime {
       outputPreview: output.slice(0, 500),
       error: result.error,
     });
-    this.sessionLog?.appendDebug('tool_end', name, {
+    this.sessionLog?.appendDebug('info', `debug tool_end ${name}`, {
+      eventType: 'tool_end',
       toolCallId,
       tool: name,
       toolName: name,

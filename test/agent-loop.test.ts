@@ -154,6 +154,50 @@ describe('AgentLoop E2E', () => {
     )).toBe(true);
   });
 
+  it('stops after repeated invalid tool arguments', async () => {
+    const executor = createMockExecutor();
+    (executor.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: false,
+      output: '',
+      error: 'MCP error -32602: Input validation error: Invalid arguments for tool write_file: expected string, received undefined',
+    });
+
+    const provider = mockProvider([
+      {
+        tool_calls: [{
+          index: 0,
+          id: 'call_1',
+          function: { name: 'mcp__filesystem__write_file', arguments: '{"content":"x"}' },
+        }],
+      },
+      {
+        tool_calls: [{
+          index: 0,
+          id: 'call_2',
+          function: { name: 'mcp__filesystem__write_file', arguments: '{"content":"x"}' },
+        }],
+      },
+      { content: 'Should not get here.' },
+    ]);
+
+    const loop = new AgentLoop(executor, 5);
+    const chunks: string[] = [];
+    for await (const chunk of loop.run(
+      provider,
+      [{ role: 'user', content: 'Write file' }],
+      [{ type: 'function', function: { name: 'mcp__filesystem__write_file', description: 'write', parameters: {} } }],
+      undefined,
+      undefined,
+      { maxSteps: 5 }
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(executor.execute).toHaveBeenCalledTimes(2);
+    expect(chunks.join('')).toContain('Stopped after repeated invalid tool arguments');
+    expect(chunks.join('')).not.toContain('Should not get here');
+  });
+
   it('resumes after approval with checkpoint injection', async () => {
     const executor = createMockExecutor();
     const provider = mockProvider([{ content: 'Resumed successfully.' }]);
