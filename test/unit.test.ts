@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
@@ -104,6 +104,43 @@ describe('IgnoreService', () => {
       expect(result.success).toBe(true);
       expect(result.output).toContain('FormikRenderer');
     } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('serves repeat file reads from cache across read_file and read_files', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-read-cache-test-'));
+    const targetRelPath = 'src/cache-target.ts';
+    const targetPath = join(tempDir, targetRelPath);
+    try {
+      mkdirSync(dirname(targetPath), { recursive: true });
+      writeFileSync(targetPath, 'export const cached = true;\n');
+
+      vi.resetModules();
+      const actualFsPromises = await vi.importActual<typeof import('fs/promises')>('fs/promises');
+      const readFileSpy = vi.fn((...args: unknown[]) =>
+        (actualFsPromises.readFile as (...innerArgs: unknown[]) => Promise<unknown>)(...args)
+      );
+      vi.doMock('fs/promises', async () => ({
+        ...(await vi.importActual<typeof import('fs/promises')>('fs/promises')),
+        readFile: readFileSpy,
+      }));
+
+      const { clearReadFileCache, createReadFileTool, createReadFilesTool } = await import('../src/core/tools/builtinTools');
+      clearReadFileCache(tempDir);
+      const ig = new IgnoreService();
+      ig.load(tempDir);
+
+      const first = await createReadFileTool(tempDir, ig).execute({ path: targetRelPath });
+      const second = await createReadFilesTool(tempDir, ig).execute({ paths: [targetRelPath] });
+
+      expect(first.success).toBe(true);
+      expect(second.success).toBe(true);
+      expect(second.output).toContain('export const cached = true;');
+      expect(readFileSpy.mock.calls.filter(([path]) => String(path) === targetPath)).toHaveLength(1);
+    } finally {
+      vi.doUnmock('fs/promises');
+      vi.resetModules();
       rmSync(tempDir, { recursive: true, force: true });
     }
   });

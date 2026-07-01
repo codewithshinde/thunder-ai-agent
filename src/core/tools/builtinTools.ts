@@ -1,6 +1,7 @@
 import { AGENT_NAME } from '../../shared/brand';
 import { z } from 'zod';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, statSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'path';
 import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
@@ -70,9 +71,53 @@ function resolveToolPath(workspace: string, rawPath: string, ignoreService: Igno
 
 
 const SOURCE_FILE_PATTERN = /\.(?:tsx?|jsx?|mjs|cjs|css|scss|sass|less|json|ya?ml)$/i;
+const READ_FILE_MAX_CHARS = 50000;
 const READ_FILES_MAX_PATHS = 12;
 const SHELL_COMMAND_CONTENT_PREFIX =
   /^(?:git\s+(?:checkout|restore|reset|clean|pull|push|commit|merge|rebase|switch)\b|(?:npm|yarn|pnpm|npx)\s+|rm\s+-|mv\s+|cp\s+|sed\s+-i\b|cat\s+>|echo\s+.+>|python(?:3)?\s+|node\s+|bash\s+|sh\s+)/i;
+
+interface ReadFileCacheEntry {
+  content: string;
+  mtimeMs: number;
+  size: number;
+}
+
+const readFileCaches = new Map<string, Map<string, ReadFileCacheEntry>>();
+
+function readFileCacheKey(workspace: string): string {
+  return normalizeWorkspaceRoot(workspace) ?? workspace;
+}
+
+function getReadFileCache(workspace: string): Map<string, ReadFileCacheEntry> {
+  const key = readFileCacheKey(workspace);
+  let cache = readFileCaches.get(key);
+  if (!cache) {
+    cache = new Map();
+    readFileCaches.set(key, cache);
+  }
+  return cache;
+}
+
+export function clearReadFileCache(workspace?: string): void {
+  if (workspace) {
+    readFileCaches.delete(readFileCacheKey(workspace));
+    return;
+  }
+  readFileCaches.clear();
+}
+
+function updateReadFileCache(workspace: string, relPath: string, content: string): void {
+  try {
+    const st = statSync(join(workspace, relPath));
+    getReadFileCache(workspace).set(relPath, {
+      content: content.slice(0, READ_FILE_MAX_CHARS),
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+    });
+  } catch {
+    getReadFileCache(workspace).delete(relPath);
+  }
+}
 
 function validateWriteFileContent(relPath: string, content: string): string | undefined {
   const mdxValidationError = validateMdxContent(relPath, content);
@@ -132,8 +177,11 @@ export function createReadFilesTool(workspace: string, ignoreService: IgnoreServ
           input.paths.slice(READ_FILES_MAX_PATHS).join(', ')
         );
       }
-      for (const path of paths) {
-        const result = await readSingleFile(workspace, path, ignoreService);
+      const results = await Promise.all(paths.map(async (path) => ({
+        path,
+        result: await readSingleFile(workspace, path, ignoreService),
+      })));
+      for (const { path, result } of results) {
         parts.push(result.success
           ? `### ${path}\n${result.output}`
           : `### ${path}\nERROR: ${result.error}`);
@@ -160,8 +208,19 @@ async function readSingleFile(
     };
   }
   try {
-    const content = readFileSync(join(workspace, relPath), 'utf-8');
-    return { success: true, output: content.slice(0, 50000) };
+    const fullPath = join(workspace, relPath);
+    const st = statSync(fullPath);
+    const cached = getReadFileCache(workspace).get(relPath);
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      return { success: true, output: cached.content };
+    }
+    const content = await readFile(fullPath, 'utf-8');
+    getReadFileCache(workspace).set(relPath, {
+      content: content.slice(0, READ_FILE_MAX_CHARS),
+      mtimeMs: st.mtimeMs,
+      size: st.size,
+    });
+    return { success: true, output: content.slice(0, READ_FILE_MAX_CHARS) };
   } catch (e) {
     const err = String(e);
     if (err.includes('ENOENT')) {
@@ -737,6 +796,7 @@ export function createWriteFileTool(workspace: string, ignoreService: IgnoreServ
         const fullPath = join(workspace, relPath);
         mkdirSync(dirname(fullPath), { recursive: true });
         writeFileSync(fullPath, input.content, 'utf-8');
+        updateReadFileCache(workspace, relPath, input.content);
         return { success: true, output: `Wrote ${input.content.length} chars to ${relPath}` };
       } catch (e) {
         return { success: false, output: '', error: String(e) };
@@ -768,6 +828,9 @@ export function createApplyPatchTool(workspace: string, ignoreService: IgnoreSer
       const note = result.proposedContent
         ? `Patch validated (${result.proposedContent.length} chars)`
         : `Patched ${relPath}`;
+      if (result.proposedContent) {
+        updateReadFileCache(workspace, relPath, result.proposedContent);
+      }
       return { success: true, output: note };
     },
   };
