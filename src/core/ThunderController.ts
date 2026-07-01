@@ -384,6 +384,7 @@ export class ThunderController {
 
   private initMinimalChat(workspace: string): void {
     this.diagnosticsService.setWorkspaceRoot(workspace);
+    scaffoldMitiiWorkspace(workspace, { extensionRoot: this.context.extensionPath });
     this.projectRulesService = new ProjectRulesService(workspace);
     this.skillCatalogService = new SkillCatalogService(workspace);
     this.skillCatalogService.refresh();
@@ -409,7 +410,7 @@ export class ThunderController {
 
     this.indexService = new IndexService(workspace);
     await this.indexService.initialize();
-    scaffoldMitiiWorkspace(workspace);
+    scaffoldMitiiWorkspace(workspace, { extensionRoot: this.context.extensionPath });
     try {
       saveProjectCatalog(discoverProjectCatalog(workspace));
     } catch (error) {

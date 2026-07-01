@@ -240,6 +240,7 @@ export class ChatOrchestrator {
     const taskForClassification = extractOriginalTaskMessage(userMessage) ?? userMessage;
     const isAskMode = session.mode === 'ask';
     const isPlanMode = session.mode === 'plan';
+    const taskAnalysis = analyzeTask(taskForClassification, session.mode);
     const askPlan = isAskMode
       ? AskOrchestrator.prepare(taskForClassification, {
           workspaceRoot: this.deps.workspace,
@@ -404,7 +405,6 @@ export class ChatOrchestrator {
     const auditMode = isAuditCleanupTask(taskForClassification);
     const mdxRepairMode = isMdxRepairTask(taskForClassification);
     const mdxErrorFile = mdxRepairMode ? extractMdxErrorFile(taskForClassification) : undefined;
-    const taskAnalysis = analyzeTask(userMessage, session.mode);
     const isResume = isApprovalContinuationMessage(userMessage);
     this.deps.taskState?.setTaskContext(taskAnalysis.kind, taskAnalysis.summary, taskForClassification);
     if (!isResume) {

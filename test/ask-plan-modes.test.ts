@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import type { ChatMessage } from '../src/core/llm/types';
 import type { ToolExecutor } from '../src/core/safety/ToolExecutor';
 import type { LlmProvider } from '../src/core/llm/types';
@@ -206,7 +209,9 @@ describe('Ask and Plan mode reliability', () => {
     const { parseSkillFrontmatter } = await import('../src/core/skills/SkillCatalogService');
     const parsed = parseSkillFrontmatter(`---
 name: performance-optimization
-description: Optimizes application performance when Core Web Vitals need improvement.
+description: >
+  Optimizes application performance when Core Web Vitals
+  need improvement.
 ---
 
 # Performance Optimization
@@ -216,9 +221,85 @@ description: Optimizes application performance when Core Web Vitals need improve
     expect(parsed.description).toContain('Core Web Vitals');
   });
 
+  it('uses SKILL.md frontmatter names in the refreshed skill catalog', async () => {
+    const { SkillCatalogService } = await import('../src/core/skills/SkillCatalogService');
+    const workspace = mkdtempSync(join(tmpdir(), 'thunder-skill-catalog-'));
+    try {
+      const skillDir = join(workspace, '.mitii', 'skills', 'perf-folder');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(join(skillDir, 'SKILL.md'), `---
+name: performance-optimization
+description: "Measure-first performance work for LCP, INP, CLS, API latency, and bundles."
+---
+
+# Performance Optimization
+`, 'utf8');
+
+      const catalog = new SkillCatalogService(workspace);
+      const entries = catalog.refresh();
+      const saved = JSON.parse(readFileSync(join(workspace, '.mitii', 'skills', 'catalog.json'), 'utf8'));
+
+      expect(entries).toEqual([{
+        name: 'performance-optimization',
+        description: 'Measure-first performance work for LCP, INP, CLS, API latency, and bundles.',
+        relPath: '.mitii/skills/perf-folder/SKILL.md',
+      }]);
+      expect(saved[0].name).toBe('performance-optimization');
+      expect(catalog.get('performance-optimization')?.entry.name).toBe('performance-optimization');
+      expect(catalog.get('perf-folder')?.entry.name).toBe('performance-optimization');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('defaults planDepth in agent config schema', async () => {
     const { AgentConfigSchema } = await import('../src/core/config/schema');
     const parsed = AgentConfigSchema.parse({});
     expect(parsed.planDepth).toBe('auto');
+  });
+
+  it('installs bundled skills from the extension into the workspace', async () => {
+    const { installBundledSkills, listBundledSkillNames } = await import('../src/core/skills/installBundledSkills');
+    const { fileURLToPath } = await import('url');
+    const extensionRoot = join(fileURLToPath(new URL('..', import.meta.url)));
+
+    expect(listBundledSkillNames(extensionRoot).length).toBeGreaterThanOrEqual(8);
+
+    const workspace = mkdtempSync(join(tmpdir(), 'thunder-bundled-skills-'));
+    try {
+      const first = installBundledSkills(workspace, extensionRoot);
+      expect(first.installed).toContain('audit-cleanup');
+      expect(first.installed).toContain('performance-optimization');
+      expect(existsSync(join(workspace, '.mitii', 'skills', 'audit-cleanup', 'SKILL.md'))).toBe(true);
+
+      const second = installBundledSkills(workspace, extensionRoot);
+      expect(second.installed).toEqual([]);
+      expect(second.skipped.length).toBeGreaterThan(0);
+
+      const forced = installBundledSkills(workspace, extensionRoot, { force: true });
+      expect(forced.installed.length).toBeGreaterThan(0);
+
+      const catalog = new (await import('../src/core/skills/SkillCatalogService')).SkillCatalogService(workspace);
+      const entries = catalog.refresh();
+      expect(entries.some((entry) => entry.name === 'audit-cleanup')).toBe(true);
+      expect(entries.some((entry) => entry.name === 'using-agent-skills')).toBe(true);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('scaffoldMitiiWorkspace copies bundled skills when extensionRoot is provided', async () => {
+    const { scaffoldMitiiWorkspace } = await import('../src/core/mcp/scaffoldMitiiWorkspace');
+    const { fileURLToPath } = await import('url');
+    const extensionRoot = join(fileURLToPath(new URL('..', import.meta.url)));
+    const workspace = mkdtempSync(join(tmpdir(), 'thunder-scaffold-skills-'));
+
+    try {
+      scaffoldMitiiWorkspace(workspace, { extensionRoot });
+      expect(existsSync(join(workspace, '.mitii', 'skills', 'planning-and-task-breakdown', 'SKILL.md'))).toBe(true);
+      expect(existsSync(join(workspace, '.mitii', 'mcp.json'))).toBe(true);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 });

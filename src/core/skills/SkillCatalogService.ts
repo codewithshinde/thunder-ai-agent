@@ -27,10 +27,11 @@ export class SkillCatalogService {
     const skillFiles = findSkillFiles(root);
     this.entries = skillFiles.map((absPath) => {
       const content = readFileSync(absPath, 'utf8');
+      const frontmatter = parseSkillFrontmatter(content);
       const relPath = relative(this.workspace, absPath).replace(/\\/g, '/');
       return {
-        name: skillNameFromPath(absPath),
-        description: extractDescription(content),
+        name: frontmatter.name || skillNameFromPath(absPath),
+        description: extractDescription(content, frontmatter),
         relPath,
       };
     });
@@ -46,7 +47,10 @@ export class SkillCatalogService {
 
   get(name: string): { entry: SkillCatalogEntry; content: string } | undefined {
     const normalized = name.trim().toLowerCase();
-    const entry = this.entries.find((s) => s.name.toLowerCase() === normalized);
+    const entry = this.entries.find((s) => {
+      const folderName = basename(dirname(s.relPath)).toLowerCase();
+      return s.name.toLowerCase() === normalized || folderName === normalized;
+    });
     if (!entry) return undefined;
     return {
       entry,
@@ -124,8 +128,10 @@ function skillNameFromPath(skillPath: string): string {
   return basename(dirname(skillPath));
 }
 
-function extractDescription(content: string): string {
-  const frontmatter = parseSkillFrontmatter(content);
+function extractDescription(
+  content: string,
+  frontmatter: { name?: string; description?: string } = parseSkillFrontmatter(content)
+): string {
   if (frontmatter.description) return frontmatter.description.slice(0, 240);
 
   const lines = content
@@ -140,9 +146,51 @@ function parseSkillFrontmatter(content: string): { name?: string; description?: 
   if (!match) return {};
 
   const block = match[1];
-  const name = block.match(/^name:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '');
-  const description = block.match(/^description:\s*(.+)$/m)?.[1]?.trim().replace(/^['"]|['"]$/g, '');
+  const name = readYamlScalar(block, 'name');
+  const description = readYamlScalar(block, 'description');
   return { name, description };
+}
+
+function readYamlScalar(block: string, key: string): string | undefined {
+  const lines = block.replace(/\r\n/g, '\n').split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const match = line.match(new RegExp(`^${escapeRegExp(key)}:\\s*(.*)$`));
+    if (!match) continue;
+
+    const value = match[1].trim();
+    if (value === '|' || value === '>') {
+      const indented: string[] = [];
+      for (let child = index + 1; child < lines.length; child += 1) {
+        const childLine = lines[child];
+        if (/^\S/.test(childLine)) break;
+        if (!childLine.trim()) {
+          indented.push('');
+          continue;
+        }
+        indented.push(childLine.replace(/^\s{1,}/, ''));
+      }
+      const joined = value === '>'
+        ? indented.join(' ').replace(/\s+/g, ' ').trim()
+        : indented.join('\n').trim();
+      return cleanYamlScalar(joined);
+    }
+
+    return cleanYamlScalar(value);
+  }
+  return undefined;
+}
+
+function cleanYamlScalar(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const quoted = trimmed.match(/^(['"])([\s\S]*)\1(?:\s+#.*)?$/);
+  const cleaned = quoted ? quoted[2] : trimmed.replace(/\s+#.*$/, '');
+  return cleaned.trim() || undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export { parseSkillFrontmatter };

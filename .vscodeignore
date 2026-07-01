@@ -10,7 +10,6 @@
 
 src/**
 test/**
-templates/**
 scripts/**
 
 *.vsix
@@ -27,3 +26,4 @@ vitest.config.ts
 
 !dist/**
 !media/**
+!bundled-skills/**
