@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'fs';
-import { basename, dirname, join } from 'path';
+import { basename, join } from 'path';
 import { createLogger } from '../telemetry/Logger';
 
 const log = createLogger('BundledSkills');

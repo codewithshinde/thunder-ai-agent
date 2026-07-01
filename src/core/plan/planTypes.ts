@@ -23,4 +23,10 @@ export interface PlanRunPlan {
   discoveryMaxSteps: number;
   autoContinue: boolean;
   maxAutoContinues: number;
+  /** Skill names recommended for this planning session. */
+  suggestedSkills: string[];
+  /** Pre-loaded skill playbook text injected into discovery and plan compilation. */
+  skillPlaybookContext: string;
+  /** Skills successfully loaded from the workspace catalog. */
+  appliedSkills: string[];
 }

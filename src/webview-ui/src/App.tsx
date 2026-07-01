@@ -121,7 +121,7 @@ export function App() {
       />
 
       {state.tab === 'chat' ? (
-        <div className="chat-shell">
+        <div className={`chat-shell ${state.mode === 'plan' ? 'chat-shell--plan-mode' : ''}`}>
           <PlanPanel
             plan={state.plan}
             mode={state.mode}

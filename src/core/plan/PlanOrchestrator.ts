@@ -1,14 +1,17 @@
 import type { ProjectCatalog } from '../ask/askTypes';
 import { loadProjectCatalog } from '../ask/ProjectCatalog';
 import type { TaskAnalysis } from '../agent/TaskAnalyzer';
+import type { SkillCatalogService } from '../skills/SkillCatalogService';
 import { routePlanIntent } from './PlanIntentRouter';
 import { resolvePlanScope } from './PlanScopeResolver';
 import { buildPlanPromptContext } from './planPrompts';
+import { loadPlanningSkillPlaybooks, resolvePlanningSkillNames } from './planSkillRouting';
 import type { PlanDepth, PlanRunPlan } from './planTypes';
 
 export interface PlanPrepareOptions {
   workspaceRoot?: string;
   catalog?: ProjectCatalog;
+  skillCatalog?: SkillCatalogService;
   configuredMaxSteps?: number;
   planDepth?: PlanDepth;
   planAutoContinue?: boolean;
@@ -27,15 +30,26 @@ export class PlanOrchestrator {
       options.configuredMaxSteps,
       options.planDepth
     );
+    const suggestedSkills = resolvePlanningSkillNames(route.intent, options.taskAnalysis);
+    const { context: skillPlaybookContext, loaded: appliedSkills } = loadPlanningSkillPlaybooks(
+      options.skillCatalog,
+      suggestedSkills
+    );
 
     return {
       route,
       catalog,
       scope,
-      promptContext: buildPlanPromptContext(userMessage, route, scope, catalog),
+      promptContext: buildPlanPromptContext(userMessage, route, scope, catalog, {
+        suggestedSkills,
+        appliedSkills,
+      }),
       discoveryMaxSteps,
       autoContinue: Boolean(options.planAutoContinue ?? (route.groundingRequired && route.complexity === 'high')),
       maxAutoContinues: resolvePlanMaxAutoContinues(route.complexity, route.intent, options.planMaxAutoContinues),
+      suggestedSkills,
+      skillPlaybookContext,
+      appliedSkills,
     };
   }
 }

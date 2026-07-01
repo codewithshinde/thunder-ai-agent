@@ -640,6 +640,7 @@ export class ThunderController {
       workspace: ws,
       memoryService: this.memoryService,
       taskState: this.agentTaskState,
+      skillCatalog: this.skillCatalogService,
     });
     orchestrator.setToolExecutor(this.toolExecutor);
     orchestrator.setContextPackCallback((pack, views, budget) => {

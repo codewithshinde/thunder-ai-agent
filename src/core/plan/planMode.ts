@@ -35,12 +35,14 @@ export const PLAN_SYNTHESIS_NUDGE = `Read-only discovery for this Plan-mode turn
 
 Output a concise DISCOVERY_SUMMARY NOW in plain text:
 - Key facts, relevant file paths, risks, and verification commands.
+- Note which planning skill workflows apply (dependency graph, vertical slices, acceptance criteria).
 - Do NOT call any more tools in this turn.
 - The orchestrator will compile the structured plan from your summary.`;
 
 export const NO_TOOLS_PLAN_NUDGE = `You are in Plan mode and answered without reading or searching the codebase. Plan mode MUST be grounded before compiling steps.
 
 In this turn, call at least one read-only discovery tool:
+- use_skill — load planning-and-task-breakdown or using-agent-skills when playbooks are not pre-loaded
 - read_file / read_files — inspect specific files
 - search / search_batch — find symbols, routes, or patterns
 - retrieve_context / repo_map / project_catalog — widen project context

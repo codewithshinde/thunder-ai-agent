@@ -43,6 +43,8 @@ import {
 import { AskOrchestrator } from './ask/AskOrchestrator';
 import { PlanOrchestrator } from './plan/PlanOrchestrator';
 import { filterPlanModeTools, needsPlanGrounding } from './plan/planMode';
+import { loadPlanningSkillPlaybooks, resolvePlanningSkillNames } from './plan/planSkillRouting';
+import { routePlanIntent } from './plan/PlanIntentRouter';
 import {
   extractMdxErrorFile,
   isMdxRepairTask,
@@ -58,6 +60,8 @@ import type { MemoryHookService } from './memory/MemoryHookService';
 import type { MemoryService } from './memory/MemoryService';
 import type { AgentTaskState } from './agent/AgentTaskState';
 import type { PostEditValidator } from './apply/PostEditValidator';
+import type { SkillCatalogService } from './skills/SkillCatalogService';
+import { thunderPlanToView } from './plan/planViewMapper';
 import { showWriteDiffPreview, showPatchDiffPreview } from '../vscode/diffPreview';
 import { toWorkspaceRelPath } from './vscode/pathUtils';
 import { estimateChatRequestTokens } from './llm/UsageTrackingProvider';
@@ -95,6 +99,7 @@ export interface ChatOrchestratorDeps {
   taskState?: AgentTaskState;
   researchAgentProvider?: LlmProvider;
   runVerifyHooks?: (commands: string[]) => Promise<string>;
+  skillCatalog?: SkillCatalogService;
 }
 
 export class ChatOrchestrator {
@@ -253,6 +258,7 @@ export class ChatOrchestrator {
     const planPlan = isPlanMode
       ? PlanOrchestrator.prepare(taskForClassification, {
           workspaceRoot: this.deps.workspace,
+          skillCatalog: this.deps.skillCatalog,
           configuredMaxSteps: agentConfig?.maxSteps,
           planDepth: agentConfig?.planDepth,
           planAutoContinue: agentConfig?.autoContinue,
@@ -513,7 +519,7 @@ export class ChatOrchestrator {
         activePlan
       ) {
         const plan = activePlan.plan;
-        this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
+        this.onPlan?.(thunderPlanToView(plan, { status: 'running' }));
         this.setLiveStatus('Executing saved plan', plan.goal, 1, plan.steps.length);
         this.emitActivity('info', `Resuming saved plan (${plan.steps.length} steps)…`);
         sessionTiming.start('plan_execution');
@@ -524,7 +530,7 @@ export class ChatOrchestrator {
           plan,
           displayPack,
           tools,
-          (updated) => this.onPlan?.({ goal: updated.goal, assumptions: updated.assumptions, steps: updated.steps }),
+          (updated) => this.onPlan?.(thunderPlanToView(updated, { status: 'running' })),
           signal,
           sharedLoopCallbacks,
           sharedPlanOptions
@@ -545,11 +551,47 @@ export class ChatOrchestrator {
         this.planExecutor &&
         taskAnalysis.shouldPlan
       ) {
+        const planningRoute = planPlan?.route ?? routePlanIntent(planningRequest, taskAnalysis);
+        const skillContext = planPlan
+          ? {
+              skillPlaybookContext: planPlan.skillPlaybookContext,
+              appliedSkills: planPlan.appliedSkills,
+            }
+          : (() => {
+              const loaded = loadPlanningSkillPlaybooks(
+                this.deps.skillCatalog,
+                resolvePlanningSkillNames(planningRoute.intent, taskAnalysis)
+              );
+              return {
+                skillPlaybookContext: loaded.context,
+                appliedSkills: loaded.loaded,
+              };
+            })();
+
+        const planningSkillOptions = {
+          skillPlaybookContext: skillContext.skillPlaybookContext,
+        };
+
+        let requirementAnalysisText = '';
         let planningDiscovery = '';
+
+        this.onPlan?.({
+          goal: planningRequest.slice(0, 240),
+          assumptions: [],
+          steps: [],
+          status: 'planning',
+          appliedSkills: skillContext.appliedSkills,
+        });
 
         if (toolsEnabled) {
           this.setLiveStatus('Planning discovery');
           this.emitActivity('info', 'Running read-only planning discovery…');
+          if (skillContext.appliedSkills.length > 0) {
+            this.emitActivity(
+              'info',
+              `Loaded planning skills: ${skillContext.appliedSkills.join(', ')}`
+            );
+          }
           sessionTiming.start('planning_discovery');
           try {
             planningDiscovery = await this.planExecutor.runPlanningDiscovery(
@@ -568,6 +610,7 @@ export class ChatOrchestrator {
                 restrictRunCommandToReadOnly: true,
                 planAutoContinue: planPlan?.autoContinue ?? agentConfig?.autoContinue,
                 planMaxAutoContinues: planPlan?.maxAutoContinues ?? agentConfig?.maxAutoContinues,
+                ...planningSkillOptions,
               }
             );
             if (planningDiscovery) {
@@ -593,29 +636,40 @@ export class ChatOrchestrator {
         this.emitActivity('info', 'Analyzing requirements…');
         sessionTiming.start('requirement_analysis');
 
-        const requirementHeader = '## Requirement analysis\n\n';
-        yield requirementHeader;
-        fullResponse += requirementHeader;
-
         for await (const chunk of this.planExecutor.analyzeRequirementsStream(
           provider,
           displayPack,
           planningRequest,
-          taskAnalysis
+          taskAnalysis,
+          skillContext.skillPlaybookContext,
+          (text) => {
+            requirementAnalysisText = text;
+            if (session.mode === 'plan') {
+              this.onPlan?.({
+                goal: planningRequest.slice(0, 240),
+                assumptions: [],
+                steps: [],
+                status: 'planning',
+                requirementAnalysis: text,
+                appliedSkills: skillContext.appliedSkills,
+              });
+            }
+          }
         )) {
           if (signal.aborted) break;
-          fullResponse += chunk;
-          yield chunk;
+          if (session.mode !== 'plan') {
+            fullResponse += chunk;
+            yield chunk;
+          }
         }
-        yield '\n\n';
-        fullResponse += '\n\n';
         sessionTiming.end('requirement_analysis', sessionLog);
 
         this.setLiveStatus('Creating plan');
         this.emitActivity('info', 'Planning multi-step task…');
         sessionTiming.start('plan_generation');
 
-        const requirementAnalysis = extractRequirementAnalysis(fullResponse);
+        const requirementAnalysis =
+          requirementAnalysisText.trim() || extractRequirementAnalysis(fullResponse);
 
         const plan = await this.planExecutor.generatePlan(
           provider,
@@ -629,6 +683,7 @@ export class ChatOrchestrator {
           {
             workspace: this.deps.workspace,
             useIsolatedPlanning: true,
+            ...planningSkillOptions,
           }
         );
         sessionTiming.end('plan_generation', sessionLog, {
@@ -636,11 +691,17 @@ export class ChatOrchestrator {
           stepCount: plan?.steps.length ?? 0,
         });
         if (plan && plan.steps.length >= 1) {
-          this.onPlan?.({ goal: plan.goal, assumptions: plan.assumptions, steps: plan.steps });
+          const planView = thunderPlanToView(plan, {
+            status: session.mode === 'plan' ? 'ready' : 'running',
+            requirementAnalysis: requirementAnalysis || undefined,
+            appliedSkills: skillContext.appliedSkills,
+          });
+          this.onPlan?.(planView);
           this.deps.planPersistence?.save(session.id, plan);
           this.deps.sessionLog?.append('plan_created', plan.goal, {
             stepCount: plan.steps.length,
             steps: plan.steps.map((s) => ({ id: s.id, title: s.title, risk: s.risk, phase: s.phase })),
+            appliedSkills: skillContext.appliedSkills,
           });
 
           if (session.mode === 'agent') {
@@ -658,11 +719,13 @@ export class ChatOrchestrator {
               displayPack,
               tools,
               (updated) => {
-                this.onPlan?.({
-                  goal: updated.goal,
-                  assumptions: updated.assumptions,
-                  steps: updated.steps,
-                });
+                this.onPlan?.(
+                  thunderPlanToView(updated, {
+                    status: 'running',
+                    requirementAnalysis: requirementAnalysis || undefined,
+                    appliedSkills: skillContext.appliedSkills,
+                  })
+                );
                 const running = updated.steps.findIndex((s) => s.status === 'running');
                 const idx = running >= 0 ? running : updated.steps.filter((s) => s.status === 'done').length;
                 const step = updated.steps[idx];
@@ -704,7 +767,7 @@ export class ChatOrchestrator {
               return;
             }
           } else {
-            const planText = formatPlanAsResponse(plan);
+            const planText = formatPlanModeChatSummary(planView);
             fullResponse = planText;
             yield planText;
             this.emitActivity('info', 'Plan ready — switch to Agent mode to execute steps');
@@ -937,7 +1000,7 @@ export class ChatOrchestrator {
 
     const parsed = parsePlanFromText(fullResponse);
     if (parsed) {
-      this.onPlan?.({ goal: parsed.goal, assumptions: parsed.assumptions, steps: parsed.steps });
+      this.onPlan?.(thunderPlanToView(parsed, { status: 'ready' }));
       this.deps.planPersistence?.save(session.id, parsed);
       this.deps.sessionLog?.append('plan_created', parsed.goal, {
         stepCount: parsed.steps.length,
@@ -1331,29 +1394,22 @@ function formatPlanHeader(plan: import('./planning/PlanActEngine').ThunderPlan):
   return `## Plan: ${plan.goal}\n\n${plan.steps.length} validated steps to execute.\n\n`;
 }
 
-function formatPlanAsResponse(plan: import('./planning/PlanActEngine').ThunderPlan): string {
-  const lines = [
-    `## ${plan.goal}`,
+function formatPlanModeChatSummary(plan: PlanView): string {
+  const stepCount = plan.steps.length;
+  const skillNote = plan.appliedSkills?.length
+    ? `\n\nSkills applied: ${plan.appliedSkills.join(', ')}`
+    : '';
+  return [
+    `## Plan ready`,
     '',
-    '### Recommended steps',
-  ];
-
-  for (const [i, step] of plan.steps.entries()) {
-    lines.push(`${i + 1}. **${step.title}** (${step.risk} risk${step.phase ? `, ${step.phase}` : ''})`);
-    if (step.objective) lines.push(`   Objective: ${step.objective}`);
-    if (step.files?.length) lines.push(`   Files: \`${step.files.join('`, `')}\``);
-    if (step.tools?.length) lines.push(`   Tools: ${step.tools.join(', ')}`);
-    if (step.successCriteria?.length) lines.push(`   Success: ${step.successCriteria.join('; ')}`);
-  }
-
-  if (plan.assumptions.length > 0) {
-    lines.push('', '### Assumptions', ...plan.assumptions.map((a) => `- ${a}`));
-  }
-  if (plan.requiredApprovals.length > 0) {
-    lines.push('', '### Required approvals', ...plan.requiredApprovals.map((a) => `- ${a}`));
-  }
-  lines.push('', '---', '*Switch to **Agent** mode and ask to execute this plan when ready.*');
-  return lines.join('\n');
+    `**${plan.goal}**`,
+    '',
+    `${stepCount} step${stepCount === 1 ? '' : 's'} compiled in the **Planner** panel above — requirement analysis, phased steps, tools, and success criteria are shown there.`,
+    skillNote,
+    '',
+    '---',
+    '*Switch to **Agent** mode and ask to execute this plan when ready.*',
+  ].join('\n');
 }
 
 export { filterDirectAgentTools } from './tools/toolAliases';

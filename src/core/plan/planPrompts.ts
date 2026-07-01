@@ -7,7 +7,8 @@ export function buildPlanPromptContext(
   userMessage: string,
   route: PlanRoute,
   scope: AskScopeResolution,
-  catalog?: ProjectCatalog
+  catalog?: ProjectCatalog,
+  skills?: { suggestedSkills: string[]; appliedSkills: string[] }
 ): string {
   const lines = [
     '## Plan routing',
@@ -19,6 +20,12 @@ export function buildPlanPromptContext(
     `Scope status: ${scope.status}`,
     `Scope reason: ${scope.reason}`,
   ];
+
+  if (skills?.appliedSkills.length) {
+    lines.push(`Planning skills loaded: ${skills.appliedSkills.join(', ')}`);
+  } else if (skills?.suggestedSkills.length) {
+    lines.push(`Planning skills to load via use_skill: ${skills.suggestedSkills.join(', ')}`);
+  }
 
   if (scope.projects.length > 0) {
     lines.push(`Scoped projects: ${scope.projects.map((project) => `${project.id} (${project.root})`).join(', ')}`);
@@ -33,6 +40,7 @@ export function buildPlanPromptContext(
     '## Plan response contract',
     'Use Ask-style read-only discovery first, then compile a structured, persisted execution plan.',
     'Plan steps must be concrete enough for the SDK/headless agent boundary: stable goal, assumptions, affected files, tools, success criteria, risk, and verification.',
+    'Follow loaded planning skill playbooks (planning-and-task-breakdown): dependency graph, vertical slices, acceptance criteria, and verification per step.',
     'Do not execute writes in Plan mode. Execution happens later through the same saved plan contract an SDK can expose as Agent.plan() followed by Agent.executePlan().'
   );
 

@@ -7,6 +7,7 @@ import { CHAT_HISTORY_GUIDANCE, STATE_MACHINE_GUIDANCE } from '../agent/taskStat
 import { buildAuditBootstrapBlock } from '../agent/auditRouting';
 import { buildMdxRepairBootstrapBlock } from '../agent/mdxRepairRouting';
 import { ASK_DEEP_RESPONSE_TEMPLATE } from '../ask/askPrompts';
+import { PLAN_SKILL_TOOL_GUIDANCE } from '../plan/planSkillRouting';
 
 const ASK_TOOL_GUIDANCE = `
 ASK MODE TOOLS — read-only exploration only:
@@ -76,6 +77,7 @@ const PLANNING_DISCOVERY_GUIDANCE = `
 READ-ONLY PLANNING DISCOVERY TOOLS:
 - Use read_file/read_files/search/search_batch/list_files/repo_map/retrieve_context to inspect the codebase.
 - Use diagnostics, git_diff, memory_search, and search_script_catalog when relevant.
+${PLAN_SKILL_TOOL_GUIDANCE}
 - For audit/cleanup: execute_workspace_script (audit-dependencies.mjs, audit-dead-code.sh) — NOT spawn_research_agent.
 - For unused exports/dead code: use knip/ts-prune through audit-dead-code.sh or read-only npx commands; do NOT manually grep.
 - Use run_command only for read-only inspection commands such as rg, find, git status, npx depcheck, npx knip, lint/test/typecheck checks.
@@ -271,7 +273,8 @@ export function buildPlanGenerationPrompt(
   userMessage: string,
   requirementAnalysis?: string,
   planningDiscovery?: string,
-  task?: { kind: string; complexity: string }
+  task?: { kind: string; complexity: string },
+  skillPlaybookContext?: string
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
   const analysisBlock = requirementAnalysis
@@ -279,6 +282,9 @@ export function buildPlanGenerationPrompt(
     : '';
   const discoveryBlock = planningDiscovery
     ? `\n\n## Tool-assisted planning discovery\n${planningDiscovery}`
+    : '';
+  const skillBlock = skillPlaybookContext?.trim()
+    ? `\n\n${skillPlaybookContext.trim()}`
     : '';
   const isAudit = task?.kind === 'audit';
   const highComplexity = task?.complexity === 'high';
@@ -303,6 +309,7 @@ Process:
 6. Every step must include objective, tools, successCriteria, files, and risk.
 7. ${stepGuidance}
 8. For documentation tasks, include explicit discovery for docs routing/config and a verification step that proves the pages are served.${auditGuidance}
+9. Follow any loaded planning skill playbooks: vertical slices, dependency graph, acceptance criteria, and verification commands per step.
 
 Output ONLY a JSON code block with a phases JSON array. Do not output prose:
 \`\`\`json
@@ -362,7 +369,7 @@ Mode: ${mode}.`,
     },
     {
       role: 'user',
-      content: `## Context\n${contextBlock}${analysisBlock}${discoveryBlock}\n\n## Task\n${userMessage}\n\nGenerate the plan JSON.`,
+      content: `## Context\n${contextBlock}${analysisBlock}${discoveryBlock}${skillBlock}\n\n## Task\n${userMessage}\n\nGenerate the plan JSON.`,
     },
   ];
 }
@@ -374,12 +381,14 @@ export function buildIsolatedPlanPrompt(
   userMessage: string,
   requirementAnalysis?: string,
   planningDiscovery?: string,
-  task?: { kind: string; complexity: string }
+  task?: { kind: string; complexity: string },
+  skillPlaybookContext?: string
 ): ChatMessage[] {
   const repoMapItem = contextPack.items.find((i) => i.source === 'repo-map' || i.reason.includes('repo'));
   const repoMapBlock = repoMapItem?.content ?? '(repo map unavailable — use retrieve_context after execution begins)';
   const analysisBlock = requirementAnalysis ? `\n\n## Requirement analysis\n${requirementAnalysis}` : '';
   const discoveryBlock = planningDiscovery ? `\n\n## Tool-assisted planning discovery\n${planningDiscovery}` : '';
+  const skillBlock = skillPlaybookContext?.trim() ? `\n\n${skillPlaybookContext.trim()}` : '';
   const isAudit = task?.kind === 'audit';
 
   return [
@@ -390,11 +399,14 @@ export function buildIsolatedPlanPrompt(
 2. A compressed repo_map
 3. Requirement analysis (if any)
 4. Tool-assisted planning discovery (if any)
+5. Planning skill playbooks (if any) — follow their workflow when compiling steps
 
 Output a strict JSON DAG plan with dependsOn edges. Each step must declare:
 - id, title, objective, tools (array), successCriteria, files, risk, phase
 - dependsOn: array of step ids that must complete first (empty for root steps)
 - optional tool + args for script-driven steps
+
+When planning skill playbooks are present, honor vertical slicing, explicit acceptance criteria, and verification commands per step.
 
 ${isAudit ? 'Audit tasks need 8+ granular steps across diagnostics/review/execute/verify phases. Diagnostics must run knip or ts-prune for unused exports.' : 'Use 2-8 steps based on complexity. Documentation tasks must include docs routing/sidebar/navbar discovery before writing pages, and docs build verification.'}
 
@@ -430,7 +442,7 @@ Mode: ${mode}.`,
     },
     {
       role: 'user',
-      content: `## Repo map (compressed)\n${repoMapBlock}${analysisBlock}${discoveryBlock}\n\n## Task\n${userMessage}\n\nCompile the DAG plan JSON.`,
+      content: `## Repo map (compressed)\n${repoMapBlock}${analysisBlock}${discoveryBlock}${skillBlock}\n\n## Task\n${userMessage}\n\nCompile the DAG plan JSON.`,
     },
   ];
 }
@@ -439,10 +451,14 @@ export function buildPlanningDiscoveryPrompt(
   mode: ThunderMode,
   contextPack: ContextPack,
   userMessage: string,
-  analysis: { kind: string; complexity: string; summary: string }
+  analysis: { kind: string; complexity: string; summary: string },
+  skillPlaybookContext?: string
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
   const auditGuidance = analysis.kind === 'audit' ? `\n\n${AUDIT_GUIDANCE}` : '';
+  const skillBlock = skillPlaybookContext?.trim()
+    ? `\n\n${skillPlaybookContext.trim()}`
+    : '';
 
   return [
     {
@@ -457,7 +473,8 @@ Rules:
 - Use tools to fill gaps in the provided context before planning.
 - Prefer batched reads/searches and parallel research subagents when useful.
 - For audit/cleanup tasks, inspect package manifests and repo shape before finalizing findings.
-- Finish with a concise "DISCOVERY_SUMMARY" containing facts, relevant files, risks, and verification commands.`,
+- Finish with a concise "DISCOVERY_SUMMARY" containing facts, relevant files, risks, and verification commands.
+- If planning skill playbooks are loaded above, align discovery findings with their workflow (dependency graph, vertical slices).`,
     },
     {
       role: 'user',
@@ -465,7 +482,7 @@ Rules:
 ${analysis.summary}
 
 ## Codebase Context
-${contextBlock}
+${contextBlock}${skillBlock}
 
 ## User request
 ${userMessage}
@@ -478,9 +495,13 @@ Run read-only discovery for planning, then output DISCOVERY_SUMMARY.`,
 export function buildRequirementAnalysisPrompt(
   contextPack: ContextPack,
   userMessage: string,
-  analysis: { kind: string; complexity: string; summary: string }
+  analysis: { kind: string; complexity: string; summary: string },
+  skillPlaybookContext?: string
 ): ChatMessage[] {
   const contextBlock = contextPack.formatted ?? '(no context)';
+  const skillBlock = skillPlaybookContext?.trim()
+    ? `\n\n${skillPlaybookContext.trim()}`
+    : '';
   return [
     {
       role: 'system',
@@ -493,7 +514,9 @@ Output a concise analysis (bullet points, max 12 lines):
 4. **Success criteria** — how to verify the work is done (tests, lint, behavior)
 5. **Approach** — high-level strategy (2-4 bullets)
 
-Be specific. Use file paths from context. Do NOT write code.`,
+When planning skill playbooks are provided, align scope and approach with their workflow (dependency graph, vertical slices, verification).
+
+Be specific. Use file paths from context. Do NOT write code or duplicate the full step-by-step plan — the planner compiles steps separately.`,
     },
     {
       role: 'user',
@@ -501,7 +524,7 @@ Be specific. Use file paths from context. Do NOT write code.`,
 ${analysis.summary}
 
 ## Codebase Context
-${contextBlock}
+${contextBlock}${skillBlock}
 
 ## User request
 ${userMessage}

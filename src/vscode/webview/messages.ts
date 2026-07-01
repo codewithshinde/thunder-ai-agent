@@ -145,12 +145,29 @@ export interface PlanStepView {
   status: 'pending' | 'running' | 'done' | 'blocked' | 'failed' | 'blocked_by_dependency';
   risk: 'low' | 'medium' | 'high';
   files?: string[];
+  phase?: 'diagnostics' | 'review' | 'execute' | 'verify';
+  objective?: string;
+  tools?: string[];
+  successCriteria?: string[];
+  dependsOn?: string[];
+}
+
+export interface PlanPhaseView {
+  id: string;
+  title: string;
+  phase: 'diagnostics' | 'review' | 'execute' | 'verify';
+  steps: PlanStepView[];
 }
 
 export interface PlanView {
   goal: string;
   assumptions: string[];
+  requiredApprovals?: string[];
   steps: PlanStepView[];
+  phases?: PlanPhaseView[];
+  requirementAnalysis?: string;
+  status?: 'planning' | 'ready' | 'running' | 'completed';
+  appliedSkills?: string[];
 }
 
 export interface IndexingStatusView {
