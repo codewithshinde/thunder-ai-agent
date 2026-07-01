@@ -50,6 +50,46 @@ export class GitService {
     }
   }
 
+  async getStagedDiff(maxChars = 16_000): Promise<string> {
+    if (!this.isRepo || !this.git) return '';
+    try {
+      const diff = await this.git.diff(['--cached']);
+      return diff.slice(0, maxChars);
+    } catch {
+      return '';
+    }
+  }
+
+  async getUnstagedDiff(maxChars = 12_000): Promise<string> {
+    if (!this.isRepo || !this.git) return '';
+    try {
+      const diff = await this.git.diff();
+      return diff.slice(0, maxChars);
+    } catch {
+      return '';
+    }
+  }
+
+  async getRecentCommits(limit = 5): Promise<string[]> {
+    if (!this.isRepo || !this.git) return [];
+    try {
+      const output = await this.git.raw(['log', `-${Math.max(1, Math.min(limit, 20))}`, '--oneline']);
+      return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  async getChangedFilesDetailed(): Promise<string[]> {
+    if (!this.isRepo || !this.git) return [];
+    try {
+      const output = await this.git.raw(['diff', '--name-status', 'HEAD']);
+      return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    } catch {
+      return this.getChangedFiles();
+    }
+  }
+
   get isGitRepo(): boolean {
     return this.isRepo;
   }

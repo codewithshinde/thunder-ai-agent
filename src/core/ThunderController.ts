@@ -95,6 +95,7 @@ import { listCustomMcpServers } from './mcp/mcpWorkspaceConfig';
 import { resolveDbPath } from './indexing/paths';
 import { searchWorkspacePaths, resolvePickedPaths } from './context/contextPathSearch';
 import { createWorkspacePattern, isWorkspaceInVscodeFolders, normalizeWorkspaceRoot, toWorkspaceRelPath } from './vscode/pathUtils';
+import { collectCommitMessageInput, generateCommitMessage, type CommitMessageResult } from './scm';
 
 const log = createLogger('ThunderController');
 
@@ -901,6 +902,10 @@ export class ThunderController {
         memoryEnabled: config.memory.enabled,
         subagentsEnabled: config.agent.subagentsEnabled,
         agentMaxSteps: config.agent.maxSteps,
+        askDepth: config.agent.askDepth,
+        askMaxSteps: config.agent.askMaxSteps,
+        askAutoContinue: config.agent.askAutoContinue,
+        askMaxAutoContinues: config.agent.askMaxAutoContinues,
         agentAutoContinue: config.agent.autoContinue,
         agentMaxAutoContinues: config.agent.maxAutoContinues,
         researchAgentMaxSteps: config.agent.researchAgentMaxSteps,
@@ -1074,6 +1079,22 @@ export class ThunderController {
   getToolExecutor(): ToolExecutor | undefined { return this.toolExecutor; }
   getMemoryService(): MemoryService | undefined { return this.memoryService; }
   getCheckpointService(): CheckpointService | undefined { return this.checkpointService; }
+
+  async generateCommitMessage(): Promise<CommitMessageResult> {
+    const config = this.configService.getConfig();
+    if (!config.scm.commitMessageEnabled) {
+      throw normalizeError(new Error('Commit message generation is disabled in settings.'));
+    }
+    if (!this.gitService?.isGitRepo) {
+      throw normalizeError(new Error('No Git repository found for this workspace.'));
+    }
+    const provider = this.trackProvider(await this.resolveProviderForMode('ask'));
+    const input = await collectCommitMessageInput(this.gitService);
+    if (!input.stagedDiff.trim() && input.unstagedDiff?.trim()) {
+      throw normalizeError(new Error('Only unstaged changes found. Stage files before generating a commit message.'));
+    }
+    return generateCommitMessage(input, provider);
+  }
 
   private async resolveProviderForMode(mode: string): Promise<LlmProvider> {
     const config = this.configService.getConfig();
@@ -1931,6 +1952,10 @@ export class ThunderController {
     await this.configService.updateAgentSettings({
       subagentsEnabled: settings.subagentsEnabled,
       maxSteps: clamp(settings.maxSteps, 1, 100),
+      askDepth: settings.askDepth,
+      askMaxSteps: clamp(settings.askMaxSteps, 1, 50),
+      askAutoContinue: settings.askAutoContinue,
+      askMaxAutoContinues: clamp(settings.askMaxAutoContinues, 0, 10),
       autoContinue: settings.autoContinue,
       maxAutoContinues: clamp(settings.maxAutoContinues, 0, 10),
       researchAgentMaxSteps: clamp(settings.researchAgentMaxSteps, 1, 50),
@@ -1986,6 +2011,8 @@ export class ThunderController {
       agent: {
         ...settings.agent,
         maxSteps: clamp(settings.agent.maxSteps, 1, 100),
+        askMaxSteps: clamp(settings.agent.askMaxSteps, 1, 50),
+        askMaxAutoContinues: clamp(settings.agent.askMaxAutoContinues, 0, 10),
         maxAutoContinues: clamp(settings.agent.maxAutoContinues, 0, 10),
         researchAgentMaxSteps: clamp(settings.agent.researchAgentMaxSteps, 1, 50),
       },

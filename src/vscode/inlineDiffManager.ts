@@ -53,7 +53,6 @@ export class InlineDiffManager implements vscode.Disposable {
     this.disposables.push(
       vscode.commands.registerCommand('thunder.acceptInlineDiff', () => this.accept()),
       vscode.commands.registerCommand('thunder.rejectInlineDiff', () => this.reject()),
-      vscode.commands.registerCommand('thunder.showInlineDiff', (approvalId: string) => this.reveal(approvalId)),
       vscode.window.onDidChangeActiveTextEditor(() => this.refreshDecorations())
     );
   }
@@ -157,12 +156,6 @@ export class InlineDiffManager implements vscode.Disposable {
     const id = this.pending.approvalId;
     this.setPending(undefined);
     await this.onReject(id);
-  }
-
-  private reveal(approvalId: string): void {
-    if (this.pending?.approvalId === approvalId) {
-      void this.showInEditor(this.pending);
-    }
   }
 
   dispose(): void {

@@ -27,6 +27,7 @@ import type { ToolExecutor } from '../safety/ToolExecutor';
 import type { SkillCatalogService } from '../skills/SkillCatalogService';
 import { createLogger } from '../telemetry/Logger';
 import { analyzeChangeImpact, discoverProjectCatalog, formatProjectCatalog, saveProjectCatalog } from '../ask';
+import { filterItemsToScope, normalizeScopeRoot } from '../context/scopeFilter';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -262,12 +263,14 @@ function walkDir(
   return results;
 }
 
-async function ripgrepSearch(workspace: string, query: string, limit: number): Promise<string | null> {
+async function ripgrepSearch(workspace: string, query: string, limit: number, scopeRoot?: string): Promise<string | null> {
   try {
     const rg = await import('@vscode/ripgrep');
     const rgPath = rg.rgPath;
+    const scope = normalizeScopeRoot(scopeRoot);
+    const target = scope ? JSON.stringify(scope) : '.';
     const { stdout } = await execAsync(
-      `"${rgPath}" --no-heading --line-number --max-count ${limit} --regexp ${JSON.stringify(query)} .`,
+      `"${rgPath}" --no-heading --line-number --max-count ${limit} --regexp ${JSON.stringify(query)} ${target}`,
       { cwd: workspace, maxBuffer: 2 * 1024 * 1024, timeout: 15000 }
     );
     return stdout.trim() || null;
@@ -276,33 +279,34 @@ async function ripgrepSearch(workspace: string, query: string, limit: number): P
   }
 }
 
-export function createSearchTool(fts: FtsIndex, workspace?: string): Tool<{ query: string; limit?: number }> {
+export function createSearchTool(fts: FtsIndex, workspace?: string): Tool<{ query: string; limit?: number; scopeRoot?: string }> {
   return {
     name: 'search',
-    description: 'Search code (FTS + ripgrep). For multiple patterns, use search_batch in one call.',
+    description: 'Search code (FTS + ripgrep). For multiple patterns, use search_batch in one call. Use scopeRoot to limit to one project/package.',
     risk: 'low',
-    inputSchema: z.object({ query: z.string(), limit: z.number().optional() }),
+    inputSchema: z.object({ query: z.string(), limit: z.number().optional(), scopeRoot: z.string().optional() }),
     async execute(input): Promise<ToolResult> {
-      const output = await runSearch(fts, workspace, input.query, input.limit ?? 10);
+      const output = await runSearch(fts, workspace, input.query, input.limit ?? 10, input.scopeRoot);
       return { success: true, output: output || '(no results)' };
     },
   };
 }
 
-export function createSearchBatchTool(fts: FtsIndex, workspace?: string): Tool<{ queries: string[]; limit?: number }> {
+export function createSearchBatchTool(fts: FtsIndex, workspace?: string): Tool<{ queries: string[]; limit?: number; scopeRoot?: string }> {
   return {
     name: 'search_batch',
-    description: 'Run multiple code searches in parallel. queries must be a JSON array of strings, e.g. ["dayjs","@fontsource"].',
+    description: 'Run multiple scoped code searches in parallel. queries must be a JSON array of strings, e.g. ["dayjs","@fontsource"].',
     risk: 'low',
     inputSchema: z.object({
       queries: z.array(z.string()).min(1).max(10),
       limit: z.number().optional(),
+      scopeRoot: z.string().optional(),
     }),
     async execute(input): Promise<ToolResult> {
       const limit = input.limit ?? 8;
       const results = await Promise.all(
         input.queries.slice(0, 10).map(async (query) => {
-          const output = await runSearch(fts, workspace, query, limit);
+          const output = await runSearch(fts, workspace, query, limit, input.scopeRoot);
           return `## Query: ${query}\n${output || '(no results)'}`;
         })
       );
@@ -518,13 +522,14 @@ async function runSearch(
   fts: FtsIndex,
   workspace: string | undefined,
   query: string,
-  limit: number
+  limit: number,
+  scopeRoot?: string
 ): Promise<string> {
-  const ftsResults = fts.search(query, limit);
+  const ftsResults = filterItemsToScope(fts.search(query, limit), scopeRoot);
   let output = ftsResults.map((r) => `${r.relPath}: ${r.snippet}`).join('\n');
 
   if ((!output || ftsResults.length < 3) && workspace) {
-    const rgOut = await ripgrepSearch(workspace, query, limit);
+    const rgOut = await ripgrepSearch(workspace, query, limit, scopeRoot);
     if (rgOut) {
       output = output ? `${output}\n--- ripgrep ---\n${rgOut}` : rgOut;
     }
@@ -545,14 +550,14 @@ export function createRepoMapTool(repoMap: RepoMapService): Tool<{ query?: strin
   };
 }
 
-export function createRetrieveContextTool(retriever: HybridRetriever, budgeter: ContextBudgeter): Tool<{ query: string }> {
+export function createRetrieveContextTool(retriever: HybridRetriever, budgeter: ContextBudgeter): Tool<{ query: string; scopeRoot?: string }> {
   return {
     name: 'retrieve_context',
-    description: 'Build context pack for a query',
+    description: 'Build context pack for a query. Use scopeRoot to limit retrieval to one project/package.',
     risk: 'low',
-    inputSchema: z.object({ query: z.string() }),
+    inputSchema: z.object({ query: z.string(), scopeRoot: z.string().optional() }),
     async execute(input): Promise<ToolResult> {
-      const items = await retriever.retrieve({ text: input.query });
+      const items = await retriever.retrieve({ text: input.query, scopeRoot: input.scopeRoot });
       const pack = budgeter.budget(items, 4000);
       return { success: true, output: pack.formatted };
     },
@@ -641,10 +646,7 @@ export function createAnalyzeChangeImpactTool(
       required: ['feature'],
     },
     async execute(input): Promise<ToolResult> {
-      const enrichedFeature = input.entrySymbols?.length
-        ? `${input.feature}\nEntry symbols: ${input.entrySymbols.join(', ')}`
-        : input.feature;
-      const analysis = analyzeChangeImpact(workspace, enrichedFeature, input.scopeRoot);
+      const analysis = analyzeChangeImpact(workspace, input.feature, input.scopeRoot, undefined, input.entrySymbols ?? []);
       return { success: true, output: JSON.stringify(analysis, null, 2) };
     },
   };

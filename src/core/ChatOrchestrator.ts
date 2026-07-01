@@ -234,6 +234,20 @@ export class ChatOrchestrator {
       }
     }
 
+    const agentConfig = this.deps.agentConfig;
+    const taskForClassification = extractOriginalTaskMessage(userMessage) ?? userMessage;
+    const isAskMode = session.mode === 'ask';
+    const askPlan = isAskMode
+      ? AskOrchestrator.prepare(taskForClassification, {
+          workspaceRoot: this.deps.workspace,
+          configuredMaxSteps: agentConfig?.askMaxSteps,
+          askDepth: agentConfig?.askDepth,
+          askAutoContinue: agentConfig?.askAutoContinue,
+          askMaxAutoContinues: agentConfig?.askMaxAutoContinues,
+        })
+      : undefined;
+    const askScopeRoot = askPlan?.scope.status === 'matched' ? askPlan.scope.scopeRoot : undefined;
+
     this.setLiveStatus('Gathering context');
     this.emitActivity('context', 'Retrieving workspace context…', extractFileMentions(userMessage).join(', ') || undefined);
 
@@ -254,6 +268,7 @@ export class ChatOrchestrator {
       text: retrievalText,
       currentFile,
       openFiles,
+      scopeRoot: askScopeRoot,
       pinned: pinnedContext.map((p) => p.path),
     });
     const cacheFresh =
@@ -271,6 +286,7 @@ export class ChatOrchestrator {
           text: retrievalText,
           currentFile,
           openFiles,
+          scopeRoot: askScopeRoot,
           pinnedContext: pinnedContext.map((p) => ({ path: p.path, kind: p.kind })),
           maxItems: retrievalText === userMessage ? 28 : 40,
         });
@@ -367,20 +383,11 @@ export class ChatOrchestrator {
 
     const toolsEnabled = provider.capabilities.supportsTools
       && Boolean(this.deps.toolRuntime && this.deps.toolExecutor && this.agentLoop);
-    const agentConfig = this.deps.agentConfig;
-    const taskForClassification = extractOriginalTaskMessage(userMessage) ?? userMessage;
     const auditMode = isAuditCleanupTask(taskForClassification);
     const mdxRepairMode = isMdxRepairTask(taskForClassification);
     const mdxErrorFile = mdxRepairMode ? extractMdxErrorFile(taskForClassification) : undefined;
     const taskAnalysis = analyzeTask(userMessage, session.mode);
     const isResume = isApprovalContinuationMessage(userMessage);
-    const isAskMode = session.mode === 'ask';
-    const askPlan = isAskMode
-      ? AskOrchestrator.prepare(taskForClassification, {
-          workspaceRoot: this.deps.workspace,
-          configuredMaxSteps: agentConfig?.askMaxSteps,
-        })
-      : undefined;
     this.deps.taskState?.setTaskContext(taskAnalysis.kind, taskAnalysis.summary, taskForClassification);
     if (!isResume) {
       this.suspendContext = undefined;

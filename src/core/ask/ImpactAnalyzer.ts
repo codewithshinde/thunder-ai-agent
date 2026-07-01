@@ -11,7 +11,8 @@ export function analyzeChangeImpact(
   workspaceRoot: string,
   feature: string,
   scopeRoot?: string,
-  catalog: ProjectCatalog = discoverProjectCatalog(workspaceRoot)
+  catalog: ProjectCatalog = discoverProjectCatalog(workspaceRoot),
+  entrySymbols: string[] = []
 ): ImpactAnalysis {
   const scope = scopeRoot
     ? catalog.projects.find((project) => project.root === scopeRoot || project.id === scopeRoot)
@@ -19,12 +20,12 @@ export function analyzeChangeImpact(
   const root = scope?.root ?? scopeRoot ?? '.';
   const projectRoot = root === '.' ? '' : root;
   const absRoot = join(workspaceRoot, projectRoot);
-  const terms = extractFeatureTerms(feature);
+  const terms = [...extractFeatureTerms(feature), ...entrySymbols.map((symbol) => symbol.toLowerCase())];
   const files = walkFiles(absRoot, projectRoot, 700);
   const scored = scoreFiles(workspaceRoot, files, terms, feature);
   const scripts = scope?.scripts ?? readPackageScripts(absRoot);
   const effectiveRoot = (scope?.root ?? projectRoot) || '.';
-  const verify = inferVerifyCommands(effectiveRoot, scripts);
+  const verify = inferVerifyCommands(workspaceRoot, effectiveRoot, scripts);
   const create = inferCreateFiles(feature, effectiveRoot, scored.modify);
   const maybe = inferMaybeFiles(effectiveRoot, files, feature);
 
@@ -179,13 +180,21 @@ function summarizeImpact(feature: string, projectId: string | undefined, modify:
   return `Implementing "${feature}"${projectText} likely touches ${modify.length} existing file(s) and ${create.length} new file(s).`;
 }
 
-function inferVerifyCommands(root: string, scripts: Record<string, string>): string[] {
+function inferVerifyCommands(workspaceRoot: string, root: string, scripts: Record<string, string>): string[] {
   const prefix = root && root !== '.' ? `cd ${root} && ` : '';
+  const runner = detectPackageManager(workspaceRoot, root);
   const preferred = ['test', 'lint', 'typecheck', 'build'];
   return preferred
     .filter((script) => scripts[script])
-    .map((script) => `${prefix}npm run ${script}`)
+    .map((script) => `${prefix}${runner} run ${script}`)
     .slice(0, 3);
+}
+
+function detectPackageManager(workspaceRoot: string, root: string): 'npm' | 'pnpm' | 'yarn' {
+  const absRoot = join(workspaceRoot, root === '.' ? '' : root);
+  if (existsSync(join(absRoot, 'pnpm-lock.yaml')) || existsSync(join(workspaceRoot, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (existsSync(join(absRoot, 'yarn.lock')) || existsSync(join(workspaceRoot, 'yarn.lock'))) return 'yarn';
+  return 'npm';
 }
 
 function readPackageScripts(absRoot: string): Record<string, string> {

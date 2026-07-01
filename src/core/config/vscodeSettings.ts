@@ -58,6 +58,9 @@ export function readThunderConfigFromSettings(): ThunderConfig {
       subagentsEnabled: config.get<boolean>('agent.subagentsEnabled'),
       maxSteps: config.get<number>('agent.maxSteps'),
       askMaxSteps: config.get<number>('agent.askMaxSteps'),
+      askDepth: config.get<string>('agent.askDepth'),
+      askAutoContinue: config.get<boolean>('agent.askAutoContinue'),
+      askMaxAutoContinues: config.get<number>('agent.askMaxAutoContinues'),
       autoContinue: config.get<boolean>('agent.autoContinue'),
       maxAutoContinues: config.get<number>('agent.maxAutoContinues'),
       researchAgentMaxSteps: config.get<number>('agent.researchAgentMaxSteps'),
@@ -87,6 +90,9 @@ export function readThunderConfigFromSettings(): ThunderConfig {
     },
     workspace: {
       rootPathOverride: config.get<string>('workspace.rootPathOverride'),
+    },
+    scm: {
+      commitMessageEnabled: config.get<boolean>('scm.commitMessageEnabled'),
     },
     telemetry: {
       sessionLogging: config.get<boolean>('telemetry.sessionLogging'),

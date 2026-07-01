@@ -247,7 +247,9 @@ ${taskProgress}${continuationNote}${auditBootstrap}${mdxBootstrap}
 
 ${userMessage}
 
-Answer using the codebase context and recent conversation above. Be direct and specific.`;
+Answer using the codebase context and recent conversation above. ${mode === 'ask'
+    ? 'Follow the Ask routing/profile instructions above.'
+    : 'Be direct and specific.'}`;
 
   const messages: ChatMessage[] = [
     { role: 'system', content: buildSystemPrompt(mode, toolsEnabled, auditMode, isContinuation) },

@@ -2243,11 +2243,92 @@ describe('Ask v2 routing, scope, and impact', () => {
       expect(plan.route.intent).toBe('implement_here');
       expect(plan.promptContext).toContain('## Ask routing');
       expect(plan.promptContext).toContain('analyze_change_impact');
-      expect(plan.maxSteps).toBeGreaterThanOrEqual(16);
+      expect(plan.maxSteps).toBe(20);
       expect(plan.autoContinue).toBe(true);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it('uses Ask step ceilings instead of overriding every intent with the setting', async () => {
+    const { AskOrchestrator } = await import('../src/core/ask');
+
+    expect(AskOrchestrator.prepare('Where is Ask mode defined?', {
+      configuredMaxSteps: 18,
+    }).maxSteps).toBe(8);
+
+    expect(AskOrchestrator.prepare('Compare plan mode and ask mode', {
+      configuredMaxSteps: 18,
+    }).maxSteps).toBe(16);
+
+    expect(AskOrchestrator.prepare('How do I implement OAuth here?', {
+      configuredMaxSteps: 18,
+    }).maxSteps).toBe(18);
+
+    expect(AskOrchestrator.prepare('Explain ChatOrchestrator flow', {
+      configuredMaxSteps: 50,
+      askDepth: 'deep',
+      askMaxAutoContinues: 3,
+    })).toMatchObject({ maxSteps: 22, maxAutoContinues: 1 });
+  });
+
+  it('loads cached project catalogs during Ask preparation', async () => {
+    const { AskOrchestrator } = await import('../src/core/ask');
+    const tempDir = mkdtempSync(join(tmpdir(), 'thunder-ask-cached-catalog-test-'));
+    try {
+      mkdirSync(join(tempDir, '.mitii'), { recursive: true });
+      writeFileSync(join(tempDir, '.mitii/projects.json'), JSON.stringify({
+        workspaceRoot: tempDir,
+        generatedAt: 'cached',
+        projects: [
+          { id: 'cached-docs', root: 'apps/docs', name: 'cached-docs', type: 'docs', entryFiles: [], scripts: {} },
+        ],
+      }));
+
+      const plan = AskOrchestrator.prepare('How do docs work?', { workspaceRoot: tempDir });
+      expect(plan.catalog?.generatedAt).toBe('cached');
+      expect(plan.scope.scopeRoot).toBe('apps/docs');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('filters scoped search and retrieve_context tool results', async () => {
+    const { createSearchTool, createRetrieveContextTool } = await import('../src/core/tools/builtinTools');
+    const { ContextBudgeter } = await import('../src/core/context/ContextBudgeter');
+    const fakeFts = {
+      search: () => [
+        { relPath: 'apps/docs/src/index.ts', snippet: 'docs result' },
+        { relPath: 'apps/agent/src/index.ts', snippet: 'agent result' },
+      ],
+    };
+
+    const searchResult = await createSearchTool(fakeFts as any).execute({
+      query: 'index',
+      scopeRoot: 'apps/docs',
+    });
+
+    expect(searchResult.output).toContain('apps/docs/src/index.ts');
+    expect(searchResult.output).not.toContain('apps/agent/src/index.ts');
+
+    const fakeRetriever = {
+      retrieve: async (query: { scopeRoot?: string }) => [
+        {
+          id: 'scoped',
+          source: 'fts',
+          relPath: `${query.scopeRoot}/src/index.ts`,
+          content: 'scoped context',
+          score: 10,
+          reason: 'test',
+          tokenEstimate: 4,
+        },
+      ],
+    };
+    const contextResult = await createRetrieveContextTool(fakeRetriever as any, new ContextBudgeter()).execute({
+      query: 'index',
+      scopeRoot: 'apps/docs',
+    });
+    expect(contextResult.output).toContain('apps/docs/src/index.ts');
   });
 
   it('injects deep Ask instructions into prompts without applying concise global prose rules', async () => {
@@ -2275,5 +2356,95 @@ describe('Ask v2 routing, scope, and impact', () => {
 
     expect(messages.at(-1)?.content).toContain('## Ask routing');
     expect(messages.at(-1)?.content).toContain('repo context');
+  });
+});
+
+describe('SCM commit message generation', () => {
+  it('redacts sensitive diff lines before prompting', async () => {
+    const { buildCommitMessagePrompt } = await import('../src/core/scm');
+    const prompt = buildCommitMessagePrompt({
+      stagedDiff: [
+        'diff --git a/.env b/.env',
+        '+OPENAI_API_KEY=sk-secret',
+        '+normal=value',
+      ].join('\n'),
+      changedFiles: ['.env'],
+      recentCommits: ['aa2660f feat(ask): add structured ask mode'],
+    });
+
+    expect(prompt).toContain('[redacted sensitive line]');
+    expect(prompt).not.toContain('sk-secret');
+  });
+
+  it('normalizes model output to a 72-character subject', async () => {
+    const { normalizeCommitMessage } = await import('../src/core/scm');
+    const result = normalizeCommitMessage('```text\nfeat(ask): add an extremely long subject that should be shortened because it will not fit in git history cleanly\n\nAdds details.\n```');
+
+    expect(result.subject.length).toBeLessThanOrEqual(72);
+    expect(result.fullMessage).toContain('Adds details.');
+    expect(result.fullMessage).not.toContain('```');
+  });
+
+  it('generates a commit message through the configured provider', async () => {
+    const { generateCommitMessage } = await import('../src/core/scm');
+    const provider = {
+      id: 'fake',
+      capabilities: {
+        contextWindow: 8192,
+        supportsStreaming: true,
+        supportsTools: false,
+        supportsEmbeddings: false,
+      },
+      async *complete() {
+        yield { content: 'feat(scm): generate commit messages' };
+        yield { done: true };
+      },
+    };
+
+    const result = await generateCommitMessage({
+      stagedDiff: 'diff --git a/src/a.ts b/src/a.ts\n+export const a = 1;',
+      changedFiles: ['src/a.ts'],
+      recentCommits: [],
+    }, provider);
+
+    expect(result.fullMessage).toBe('feat(scm): generate commit messages');
+  });
+
+  it('rejects empty staged diffs', async () => {
+    const { generateCommitMessage } = await import('../src/core/scm');
+    const provider = {
+      id: 'fake',
+      capabilities: {
+        contextWindow: 8192,
+        supportsStreaming: true,
+        supportsTools: false,
+        supportsEmbeddings: false,
+      },
+      async *complete() {
+        yield { content: 'chore: noop' };
+      },
+    };
+
+    await expect(generateCommitMessage({
+      stagedDiff: '',
+      unstagedDiff: 'diff --git a/src/a.ts b/src/a.ts\n+unstaged',
+      changedFiles: ['src/a.ts'],
+      recentCommits: [],
+    }, provider)).rejects.toThrow('No staged changes');
+  });
+
+  it('contributes the SCM title command with an icon', () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
+      contributes: {
+        commands: Array<{ command: string; icon?: string }>;
+        menus?: Record<string, Array<{ command: string }>>;
+        configuration: { properties: Record<string, unknown> };
+      };
+    };
+
+    expect(pkg.contributes.commands.find((command) => command.command === 'thunder.generateCommitMessage')?.icon).toBe('media/mitii-activitybar.svg');
+    expect((pkg as { activationEvents?: string[] }).activationEvents).toContain('onCommand:thunder.generateCommitMessage');
+    expect(pkg.contributes.menus?.['scm/title']?.some((entry) => entry.command === 'thunder.generateCommitMessage')).toBe(true);
+    expect(pkg.contributes.configuration.properties['thunder.scm.commitMessageEnabled']).toBeTruthy();
   });
 });

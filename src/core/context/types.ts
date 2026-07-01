@@ -22,6 +22,7 @@ export interface ContextQuery {
   gitDiffFiles?: string[];
   diagnosticFiles?: string[];
   pinnedContext?: PinnedContextRef[];
+  scopeRoot?: string;
   maxItems?: number;
 }
 

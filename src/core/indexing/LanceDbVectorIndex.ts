@@ -1,9 +1,10 @@
 import { mkdirSync } from 'fs';
+import { join } from 'path';
 import type { ThunderDb } from './ThunderDb';
 import { cosineSimilarity } from './EmbeddingProvider';
 import { createLogger } from '../telemetry/Logger';
 import type { VectorIndex, VectorSearchResult } from './VectorIndex';
-import { resolveDbPath } from './paths';
+import { resolveThunderDir } from './paths';
 
 const log = createLogger('LanceDbVectorIndex');
 
@@ -38,7 +39,7 @@ export class LanceDbVectorIndex implements VectorIndex {
   ) {}
 
   private lanceDir(): string {
-    const base = resolveDbPath(this.workspace).replace(/thunder\.sqlite$/, 'lance');
+    const base = join(resolveThunderDir(this.workspace), 'lance');
     mkdirSync(base, { recursive: true });
     return base;
   }

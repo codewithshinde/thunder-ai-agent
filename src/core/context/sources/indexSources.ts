@@ -6,6 +6,7 @@ import type { ThunderDb } from '../../indexing/ThunderDb';
 import { RepoMapService } from '../RepoMapService';
 import type { MemoryService } from '../../memory/MemoryService';
 import { isProjectOverviewQuestion } from '../fuzzyFileMatch';
+import { filterItemsToScope } from '../scopeFilter';
 
 const OVERVIEW_FILES = [
   'README.md',
@@ -70,7 +71,7 @@ export class FtsContextSource implements ContextSource {
 
   async retrieve(query: ContextQuery): Promise<ContextItem[]> {
     const results = this.fts.search(query.text, query.maxItems ?? 10);
-    return results.map((r, i) => ({
+    return filterItemsToScope(results.map((r, i) => ({
       id: `fts-${r.relPath}-${i}`,
       source: this.id,
       relPath: r.relPath,
@@ -78,7 +79,7 @@ export class FtsContextSource implements ContextSource {
       score: Math.abs(r.rank),
       reason: `FTS match in ${r.relPath}`,
       tokenEstimate: Math.ceil(r.snippet.length / 4),
-    }));
+    })), query.scopeRoot);
   }
 }
 

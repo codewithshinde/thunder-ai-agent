@@ -192,6 +192,10 @@ export interface SettingsView {
   memoryEnabled: boolean;
   subagentsEnabled: boolean;
   agentMaxSteps: number;
+  askDepth: 'auto' | 'quick' | 'standard' | 'deep';
+  askMaxSteps: number;
+  askAutoContinue: boolean;
+  askMaxAutoContinues: number;
   agentAutoContinue: boolean;
   agentMaxAutoContinues: number;
   researchAgentMaxSteps: number;
@@ -234,6 +238,10 @@ export interface ProviderSettingsPayload {
 export interface AgentSettingsPayload {
   subagentsEnabled: boolean;
   maxSteps: number;
+  askDepth: 'auto' | 'quick' | 'standard' | 'deep';
+  askMaxSteps: number;
+  askAutoContinue: boolean;
+  askMaxAutoContinues: number;
   autoContinue: boolean;
   maxAutoContinues: number;
   researchAgentMaxSteps: number;
@@ -462,6 +470,10 @@ export const defaultSettingsView = (): SettingsView => ({
   memoryEnabled: true,
   subagentsEnabled: true,
   agentMaxSteps: 15,
+  askDepth: 'auto',
+  askMaxSteps: 18,
+  askAutoContinue: true,
+  askMaxAutoContinues: 1,
   agentAutoContinue: true,
   agentMaxAutoContinues: 2,
   researchAgentMaxSteps: 6,

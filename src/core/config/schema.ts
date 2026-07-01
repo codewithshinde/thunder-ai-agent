@@ -66,6 +66,9 @@ export const AgentConfigSchema = z.object({
   subagentsEnabled: z.boolean().default(true),
   maxSteps: z.number().int().min(1).max(100).default(15),
   askMaxSteps: z.number().int().min(1).max(50).default(18),
+  askDepth: z.enum(['auto', 'quick', 'standard', 'deep']).default('auto'),
+  askAutoContinue: z.boolean().default(true),
+  askMaxAutoContinues: z.number().int().min(0).max(10).default(1),
   autoContinue: z.boolean().default(true),
   maxAutoContinues: z.number().int().min(0).max(10).default(2),
   researchAgentMaxSteps: z.number().int().min(1).max(50).default(6),
@@ -126,6 +129,10 @@ export const WorkspaceConfigSchema = z.object({
   rootPathOverride: z.string().default(''),
 });
 
+export const ScmConfigSchema = z.object({
+  commitMessageEnabled: z.boolean().default(true),
+});
+
 export const TelemetryConfigSchema = z.object({
   sessionLogging: z.boolean().default(true),
   /** Extra diagnostics: tool inputs, context sources, LLM step metadata. Off by default for speed. */
@@ -142,6 +149,7 @@ export const ThunderConfigSchema = z.object({
   agent: AgentConfigSchema.default({}),
   mcp: McpConfigSchema.default({}),
   workspace: WorkspaceConfigSchema.default({}),
+  scm: ScmConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
 });
 
@@ -157,6 +165,7 @@ export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 export type WorkspaceConfig = z.infer<typeof WorkspaceConfigSchema>;
+export type ScmConfig = z.infer<typeof ScmConfigSchema>;
 export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>;
 export type ThunderConfig = z.infer<typeof ThunderConfigSchema>;
 

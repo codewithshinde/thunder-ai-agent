@@ -4,6 +4,7 @@ import type { ContextItem, ContextQuery, ContextSource } from '../types';
 import type { ThunderDb } from '../../indexing/ThunderDb';
 import { extractIndexedSearchTerms } from '../fuzzyFileMatch';
 import { applyContentTier, getSourceContentTier, loadFileSignatures } from '../contextTier';
+import { isPathInScope } from '../scopeFilter';
 
 const MAX_FILE_CHARS = 16_000;
 
@@ -30,6 +31,7 @@ export class IndexedFileSearchContextSource implements ContextSource {
     for (const term of terms.slice(0, 8)) {
       const rows = stmt.all(this.workspace, `%${term.toLowerCase()}%`) as Array<{ rel_path: string }>;
       for (const row of rows) {
+        if (!isPathInScope(row.rel_path, query.scopeRoot)) continue;
         paths.add(row.rel_path);
         if (paths.size >= 5) break;
       }

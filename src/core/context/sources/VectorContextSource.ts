@@ -1,5 +1,6 @@
 import type { ContextItem, ContextQuery, ContextSource } from '../types';
 import type { VectorIndexService } from '../../indexing/VectorIndex';
+import { filterItemsToScope } from '../scopeFilter';
 
 export class VectorContextSource implements ContextSource {
   readonly id = 'vector';
@@ -11,7 +12,7 @@ export class VectorContextSource implements ContextSource {
 
   async retrieve(query: ContextQuery): Promise<ContextItem[]> {
     const results = await this.vectorService.search(this.workspace, query.text, query.maxItems ?? 8);
-    return results.map((r, i) => ({
+    return filterItemsToScope(results.map((r, i) => ({
       id: `vector-${r.chunkId}-${i}`,
       source: this.id,
       relPath: r.relPath,
@@ -19,6 +20,6 @@ export class VectorContextSource implements ContextSource {
       score: r.score * 10,
       reason: `Semantic match in ${r.relPath}`,
       tokenEstimate: Math.ceil(r.content.length / 4),
-    }));
+    })), query.scopeRoot);
   }
 }

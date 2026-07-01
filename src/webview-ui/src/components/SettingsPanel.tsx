@@ -50,6 +50,13 @@ const PROVIDER_OPTIONS: Array<{ id: ProviderSettingsPayload['providerType']; lab
   { id: 'codex', label: 'OpenAI Codex' },
 ];
 
+const ASK_DEPTH_OPTIONS: Array<{ id: SettingsView['askDepth']; label: string }> = [
+  { id: 'auto', label: 'Auto' },
+  { id: 'quick', label: 'Quick' },
+  { id: 'standard', label: 'Standard' },
+  { id: 'deep', label: 'Deep' },
+];
+
 const AUTONOMY_PRESETS: Array<{
   id: SafetySettingsPayload['autonomyPreset'];
   label: string;
@@ -217,6 +224,10 @@ export function SettingsPanel({
 
   const [subagentsEnabled, setSubagentsEnabled] = useState(settings.subagentsEnabled);
   const [agentMaxSteps, setAgentMaxSteps] = useState(settings.agentMaxSteps);
+  const [askDepth, setAskDepth] = useState<SettingsView['askDepth']>(settings.askDepth);
+  const [askMaxSteps, setAskMaxSteps] = useState(settings.askMaxSteps);
+  const [askAutoContinue, setAskAutoContinue] = useState(settings.askAutoContinue);
+  const [askMaxAutoContinues, setAskMaxAutoContinues] = useState(settings.askMaxAutoContinues);
   const [agentAutoContinue, setAgentAutoContinue] = useState(settings.agentAutoContinue);
   const [agentMaxAutoContinues, setAgentMaxAutoContinues] = useState(settings.agentMaxAutoContinues);
   const [researchAgentMaxSteps, setResearchAgentMaxSteps] = useState(settings.researchAgentMaxSteps);
@@ -246,6 +257,10 @@ export function SettingsPanel({
     setContextWindow(settings.contextWindow);
     setSubagentsEnabled(settings.subagentsEnabled);
     setAgentMaxSteps(settings.agentMaxSteps);
+    setAskDepth(settings.askDepth);
+    setAskMaxSteps(settings.askMaxSteps);
+    setAskAutoContinue(settings.askAutoContinue);
+    setAskMaxAutoContinues(settings.askMaxAutoContinues);
     setAgentAutoContinue(settings.agentAutoContinue);
     setAgentMaxAutoContinues(settings.agentMaxAutoContinues);
     setResearchAgentMaxSteps(settings.researchAgentMaxSteps);
@@ -294,6 +309,10 @@ export function SettingsPanel({
       agent: {
         subagentsEnabled,
         maxSteps: agentMaxSteps,
+        askDepth,
+        askMaxSteps,
+        askAutoContinue,
+        askMaxAutoContinues,
         autoContinue: agentAutoContinue,
         maxAutoContinues: agentMaxAutoContinues,
         researchAgentMaxSteps,
@@ -555,6 +574,34 @@ export function SettingsPanel({
                   markDirty();
                 }}
               />
+
+              <label className="settings-field">
+                <span className="settings-label">Ask depth</span>
+                <select
+                  className="settings-input settings-select"
+                  value={askDepth}
+                  onChange={(e) => {
+                    setAskDepth(e.target.value as SettingsView['askDepth']);
+                    markDirty();
+                  }}
+                >
+                  {ASK_DEPTH_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+                <span className="settings-hint">
+                  Auto chooses by question type; quick favors locate answers, deep allows broader read-only exploration.
+                </span>
+              </label>
+              <SettingSwitch
+                label="Ask auto-continue"
+                description="Let deep Ask continue once when exploration reaches its cap."
+                checked={askAutoContinue}
+                onChange={(v) => {
+                  setAskAutoContinue(v);
+                  markDirty();
+                }}
+              />
               <SettingSwitch
                 label="Diff previews"
                 description="Open VS Code diff tabs before file edits."
@@ -574,6 +621,28 @@ export function SettingsPanel({
                 max={100}
                 onChange={(v) => {
                   setAgentMaxSteps(v);
+                  markDirty();
+                }}
+              />
+              <SettingStepper
+                label="Max Ask tool steps"
+                description="Advanced ceiling; Ask still chooses smaller budgets automatically."
+                value={askMaxSteps}
+                min={1}
+                max={50}
+                onChange={(v) => {
+                  setAskMaxSteps(v);
+                  markDirty();
+                }}
+              />
+              <SettingStepper
+                label="Ask max auto-continues"
+                value={askMaxAutoContinues}
+                min={0}
+                max={10}
+                disabled={!askAutoContinue}
+                onChange={(v) => {
+                  setAskMaxAutoContinues(v);
                   markDirty();
                 }}
               />

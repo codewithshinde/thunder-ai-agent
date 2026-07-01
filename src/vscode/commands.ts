@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ThunderController } from '../core/ThunderController';
 import { ThunderWebviewProvider } from './webview/ThunderWebviewProvider';
+import { registerScmContributions } from './scm/registerScmContributions';
 
 export function registerCommands(
   context: vscode.ExtensionContext,
@@ -36,4 +37,6 @@ export function registerCommands(
       }
     })
   );
+
+  registerScmContributions(context, controller);
 }

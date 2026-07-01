@@ -27,6 +27,10 @@ export async function updateAgentSettings(settings: AgentSettingsPayload): Promi
 
   await config.update('agent.subagentsEnabled', settings.subagentsEnabled, target);
   await config.update('agent.maxSteps', settings.maxSteps, target);
+  await config.update('agent.askDepth', settings.askDepth, target);
+  await config.update('agent.askMaxSteps', settings.askMaxSteps, target);
+  await config.update('agent.askAutoContinue', settings.askAutoContinue, target);
+  await config.update('agent.askMaxAutoContinues', settings.askMaxAutoContinues, target);
   await config.update('agent.autoContinue', settings.autoContinue, target);
   await config.update('agent.maxAutoContinues', settings.maxAutoContinues, target);
   await config.update('agent.researchAgentMaxSteps', settings.researchAgentMaxSteps, target);

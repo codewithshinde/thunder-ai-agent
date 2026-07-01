@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.6.21",
+  "version": "2.6.22",
   "publisher": "mitii",
   "icon": "media/mitii-short-logo.png",
   "license": "AGPL-3.0-or-later",
@@ -44,7 +44,8 @@
     "onView:thunder.sidebar",
     "onCommand:thunder.openChat",
     "onCommand:thunder.indexWorkspace",
-    "onCommand:thunder.showSettings"
+    "onCommand:thunder.showSettings",
+    "onCommand:thunder.generateCommitMessage"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -88,8 +89,23 @@
         "command": "thunder.showInlineDiff",
         "title": "Mitii: Show Inline Diff",
         "category": "Mitii"
+      },
+      {
+        "command": "thunder.generateCommitMessage",
+        "title": "Mitii: Generate Commit Message",
+        "category": "Mitii",
+        "icon": "media/mitii-activitybar.svg"
       }
     ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "thunder.generateCommitMessage",
+          "when": "scmProvider == git && gitOpenRepositoryCount != 0",
+          "group": "navigation"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -281,6 +297,11 @@
           "default": true,
           "description": "Use FTS5 + optional vector hybrid search for observations"
         },
+        "thunder.scm.commitMessageEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Mitii commit-message generation in VS Code Source Control."
+        },
         "thunder.agent.subagentsEnabled": {
           "type": "boolean",
           "default": true,
@@ -299,6 +320,29 @@
           "minimum": 1,
           "maximum": 50,
           "description": "Maximum tool-use steps per Ask-mode turn (read-only exploration). Use 16-20 for deep codebase explanations."
+        },
+        "thunder.agent.askDepth": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "quick",
+            "standard",
+            "deep"
+          ],
+          "default": "auto",
+          "description": "Ask-mode exploration depth. Auto chooses by intent; quick is concise; deep explores more before answering."
+        },
+        "thunder.agent.askAutoContinue": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow Ask mode to continue when deep exploration reaches its per-round limit."
+        },
+        "thunder.agent.askMaxAutoContinues": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Maximum automatic continuation rounds for Ask mode."
         },
         "thunder.agent.autoContinue": {
           "type": "boolean",
