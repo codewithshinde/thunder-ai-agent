@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { defaultThunderConfig } from '../src/core/config/schema';
+import { defaultThunderConfig } from '../src/core/config/defaults';
 import { applyAutonomyPreset, describeAutonomyPreset } from '../src/core/safety/autonomyPresets';
 import { createProvider } from '../src/core/llm/createProvider';
 import { OpenAiCompatibleProvider, sanitizeOpenAiCompatibleMessages } from '../src/core/llm/OpenAiCompatibleProvider';

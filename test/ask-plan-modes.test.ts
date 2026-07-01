@@ -8,7 +8,7 @@ import type { LlmProvider } from '../src/core/llm/types';
 
 describe('Ask and Plan mode reliability', () => {
   it('distinguishes git diff cached vs unstaged diagnostic keys', async () => {
-    const { normalizeDiagnosticKey } = await import('../src/core/agent/AgentTaskState');
+    const { normalizeDiagnosticKey } = await import('../src/core/runtime/AgentTaskState');
 
     expect(normalizeDiagnosticKey('git diff')).toBe('git-diff:unstaged');
     expect(normalizeDiagnosticKey('git diff --cached')).toBe('git-diff:cached');
@@ -17,7 +17,7 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('does not block git diff --cached after git diff unstaged in agent mode', async () => {
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.setTaskContext('question', 'commit message', 'commit message for staged changes');
     state.recordToolSuccess('run_command', { command: 'git diff' }, '(no changes)');
@@ -28,7 +28,7 @@ describe('Ask and Plan mode reliability', () => {
 
   it('skips AgentTaskState redundant blocking in Ask mode via ToolExecutor', async () => {
     const { ToolExecutor } = await import('../src/core/safety/ToolExecutor');
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const taskState = new AgentTaskState();
     taskState.setTaskContext('question', 'commit message', 'commit message');
     taskState.recordToolSuccess('run_command', { command: 'git diff' }, '(no changes)');
@@ -51,7 +51,7 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('detects interim Ask responses that need synthesis', async () => {
-    const { needsReadOnlySynthesis } = await import('../src/core/agent/AgentLoop');
+    const { needsReadOnlySynthesis } = await import('../src/core/runtime/AgentLoop');
     const messages: ChatMessage[] = [
       { role: 'user', content: 'commit message please' },
       {
@@ -66,7 +66,7 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('does not re-synthesize when a substantive answer already exists', async () => {
-    const { needsReadOnlySynthesis } = await import('../src/core/agent/AgentLoop');
+    const { needsReadOnlySynthesis } = await import('../src/core/runtime/AgentLoop');
     const messages: ChatMessage[] = [
       { role: 'user', content: 'how does auth work?' },
       {
@@ -79,7 +79,7 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('runs a final synthesis turn after tool-only Ask exploration', async () => {
-    const { AgentLoop } = await import('../src/core/agent/AgentLoop');
+    const { AgentLoop } = await import('../src/core/runtime/AgentLoop');
     let llmCalls = 0;
     const provider = {
       id: 'mock',
@@ -131,7 +131,7 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('nudges Plan mode when answering without grounding tools', async () => {
-    const { AgentLoop } = await import('../src/core/agent/AgentLoop');
+    const { AgentLoop } = await import('../src/core/runtime/AgentLoop');
     const seen: string[] = [];
     let llmCalls = 0;
     const provider = {
@@ -187,8 +187,8 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('uses structured planner in Plan mode even when orchestration is disabled', async () => {
-    const { shouldUsePlanner } = await import('../src/core/ChatOrchestrator');
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { shouldUsePlanner } = await import('../src/core/orchestration/ChatOrchestrator');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
 
     const analysis = analyzeTask('How does authentication work in this repo?', 'plan');
     expect(analysis.shouldPlan).toBe(true);
@@ -197,7 +197,7 @@ describe('Ask and Plan mode reliability', () => {
   });
 
   it('prepares Plan mode with depth-aware discovery budgets', async () => {
-    const { PlanOrchestrator } = await import('../src/core/plan/PlanOrchestrator');
+    const { PlanOrchestrator } = await import('../src/core/modes/plan/PlanOrchestrator');
     const quick = PlanOrchestrator.prepare('Implement SDK plan runner', { planDepth: 'quick' });
     const deep = PlanOrchestrator.prepare('Implement SDK plan runner', { planDepth: 'deep' });
 

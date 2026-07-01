@@ -1,4 +1,4 @@
-import { isReadOnlyCommand } from '../planning/PlanActEngine';
+import { isReadOnlyCommand } from '../plans/PlanActEngine';
 
 export type PolicyDecision = 'allow' | 'require_approval' | 'block';
 

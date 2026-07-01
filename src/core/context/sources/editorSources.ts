@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { ContextItem, ContextQuery, ContextSource } from '../types';
-import { toWorkspaceRelPath } from '../../vscode/pathUtils';
+import { toWorkspaceRelPath } from '../../util/paths';
 import { scorePassiveFileContext } from '../contextRelevance';
 import {
   applyContentTier,

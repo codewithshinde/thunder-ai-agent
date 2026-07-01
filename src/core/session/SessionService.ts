@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import type { ThunderDb } from '../indexing/ThunderDb';
-import type { ThunderSession } from '../ThunderSession';
+import type { ThunderSession } from './ThunderSession';
 import type { ChatMessage } from '../llm/types';
 import { createLogger } from '../telemetry/Logger';
 

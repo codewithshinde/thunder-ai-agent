@@ -178,7 +178,3 @@ export type ScmConfig = z.infer<typeof ScmConfigSchema>;
 export type GitHubConfig = z.infer<typeof GitHubConfigSchema>;
 export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>;
 export type ThunderConfig = z.infer<typeof ThunderConfigSchema>;
-
-export function defaultThunderConfig(): ThunderConfig {
-  return ThunderConfigSchema.parse({});
-}

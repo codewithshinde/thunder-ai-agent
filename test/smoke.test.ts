@@ -35,7 +35,7 @@ describe('SessionLogService', () => {
 
 describe('ThunderSession', () => {
   it('creates session with defaults', async () => {
-    const { ThunderSession } = await import('../src/core/ThunderSession');
+    const { ThunderSession } = await import('../src/core/session/ThunderSession');
     const session = new ThunderSession('/workspace');
     expect(session.id).toBeTruthy();
     expect(session.workspace).toBe('/workspace');

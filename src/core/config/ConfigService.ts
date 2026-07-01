@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AGENT_NAME } from '../../shared/brand';
 import { createLogger } from '../telemetry/Logger';
-import { readThunderConfigFromSettings } from './vscodeSettings';
+import { readThunderConfigFromSettings } from './vscode/read';
 import {
   updateProviderSettings,
   updateAgentSettings,
@@ -10,9 +10,10 @@ import {
   updateAllSettings,
   updateWorkspaceOverride,
   clearWorkspaceOverride,
-} from './updateSettings';
-import { updateCustomMcpServers } from './updateMcpSettings';
-import { type ThunderConfig, defaultThunderConfig } from './schema';
+} from './vscode/write';
+import { updateCustomMcpServers } from './vscode/mcpWrite';
+import type { ThunderConfig } from './schema';
+import { defaultThunderConfig } from './defaults';
 import type {
   AgentSettingsPayload,
   McpCustomServerView,
@@ -20,7 +21,7 @@ import type {
   ProviderSettingsPayload,
   SafetySettingsPayload,
   ThunderSettingsPayload,
-} from '../../vscode/webview/messages';
+} from './ui/payloads';
 
 const log = createLogger('ConfigService');
 const WORKSPACE_OVERRIDE_STATE_KEY = 'thunder.workspace.rootPathOverride';

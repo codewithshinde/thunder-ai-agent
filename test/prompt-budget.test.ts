@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fitChatRequestToBudget, getMaxInputTokens } from '../src/core/agent/PromptBudget';
+import { fitChatRequestToBudget, getMaxInputTokens } from '../src/core/runtime/PromptBudget';
 import { estimateChatRequestTokens } from '../src/core/llm/UsageTrackingProvider';
 
 describe('PromptBudget', () => {

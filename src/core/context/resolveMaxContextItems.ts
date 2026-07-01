@@ -1,4 +1,4 @@
-import type { ActDepth } from '../act/actTypes';
+import type { ActDepth } from '../modes/agent/actTypes';
 
 export interface ResolveMaxContextItemsOptions {
   contextWindow: number;

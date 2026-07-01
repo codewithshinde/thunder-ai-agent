@@ -4,7 +4,7 @@ import type { ToolDefinition } from '../../src/core/llm/toolTypes';
 
 describe('Plan mode orchestration', () => {
   it('forces structured planning for non-trivial codebase questions', async () => {
-    const { analyzeTask } = await import('../../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../../src/core/runtime/TaskAnalyzer');
 
     const analysis = analyzeTask('How does authentication work in this repo?', 'plan');
 
@@ -14,7 +14,7 @@ describe('Plan mode orchestration', () => {
   });
 
   it('keeps trivial general knowledge out of the planner', async () => {
-    const { analyzeTask } = await import('../../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../../src/core/runtime/TaskAnalyzer');
 
     const analysis = analyzeTask('What is a binary search tree?', 'plan');
 
@@ -23,7 +23,7 @@ describe('Plan mode orchestration', () => {
   });
 
   it('prepares a scoped SDK-compatible plan boundary', async () => {
-    const { PlanOrchestrator, createSdkCompatibilityNote } = await import('../../src/core/plan/PlanOrchestrator');
+    const { PlanOrchestrator, createSdkCompatibilityNote } = await import('../../src/core/modes/plan/PlanOrchestrator');
 
     const prepared = PlanOrchestrator.prepare('Implement the SDK plan runner in packages/sdk', {
       configuredMaxSteps: 20,
@@ -60,7 +60,7 @@ describe('Plan mode orchestration', () => {
   });
 
   it('filters Plan mode tools to read-only planning capabilities', async () => {
-    const { filterPlanModeTools, PLAN_ALLOWED_TOOLS } = await import('../../src/core/plan/planMode');
+    const { filterPlanModeTools, PLAN_ALLOWED_TOOLS } = await import('../../src/core/modes/plan/planMode');
     const tools = [
       tool('read_file'),
       tool('search_batch'),
@@ -79,8 +79,8 @@ describe('Plan mode orchestration', () => {
   });
 
   it('passes planning discovery into isolated plan compilation', async () => {
-    const { PlanExecutor } = await import('../../src/core/agent/PlanExecutor');
-    const { analyzeTask } = await import('../../src/core/agent/TaskAnalyzer');
+    const { PlanExecutor } = await import('../../src/core/runtime/PlanExecutor');
+    const { analyzeTask } = await import('../../src/core/runtime/TaskAnalyzer');
     let capturedMessages: ChatMessage[] = [];
     const provider = {
       id: 'fake',
@@ -105,7 +105,7 @@ describe('Plan mode orchestration', () => {
       "tools": ["read_file"],
       "dependsOn": [],
       "successCriteria": ["Planner files are identified"],
-      "files": ["src/core/agent/PlanExecutor.ts"],
+      "files": ["src/core/runtime/PlanExecutor.ts"],
       "risk": "low",
       "phase": "diagnostics"
     },
@@ -116,7 +116,7 @@ describe('Plan mode orchestration', () => {
       "tools": ["apply_patch"],
       "dependsOn": ["step-1"],
       "successCriteria": ["Generated prompt contains discovery"],
-      "files": ["src/core/planning/promptBuilder.ts"],
+      "files": ["src/core/plans/promptBuilder.ts"],
       "risk": "medium",
       "phase": "execute"
     }
@@ -132,7 +132,7 @@ describe('Plan mode orchestration', () => {
         {
           id: 'repo-map',
           source: 'repo-map',
-          content: 'src/core/agent/PlanExecutor.ts',
+          content: 'src/core/runtime/PlanExecutor.ts',
           score: 1,
           reason: 'repo map',
           tokenEstimate: 8,
@@ -165,7 +165,7 @@ describe('Plan mode orchestration', () => {
   });
 
   it('returns a best-effort fallback in Plan mode when quality gate rejects a parsed plan', async () => {
-    const { PlanExecutor } = await import('../../src/core/agent/PlanExecutor');
+    const { PlanExecutor } = await import('../../src/core/runtime/PlanExecutor');
     const provider = {
       id: 'fake',
       capabilities: {
@@ -187,7 +187,7 @@ describe('Plan mode orchestration', () => {
       "objective": "Make the planner better",
       "tools": ["read_file"],
       "successCriteria": ["Planner is understood"],
-      "files": ["src/core/agent/PlanExecutor.ts"],
+      "files": ["src/core/runtime/PlanExecutor.ts"],
       "risk": "medium",
       "phase": "diagnostics"
     }

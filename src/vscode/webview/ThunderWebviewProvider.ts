@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ThunderController } from '../../core/ThunderController';
+import { ThunderController } from '../../core/app/ThunderController';
 import { createLogger } from '../../core/telemetry/Logger';
 import { normalizeError, formatUserError } from '../../core/telemetry/errors';
 import { AGENT_FULL_NAME, AGENT_NAME, brandMessage } from '../../shared/brand';

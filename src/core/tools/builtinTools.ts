@@ -17,17 +17,17 @@ import type { MemoryService } from '../memory/MemoryService';
 import { PatchApplyService } from '../apply/PatchApplyService';
 import { validateMdxContent } from '../apply/mdxValidation';
 import { isDangerousCommand } from '../safety/ToolPolicyEngine';
-import { isReadOnlyCommand, stripLeadingCd } from '../planning/PlanActEngine';
-import { normalizeWorkspaceRoot, resolveWorkspaceRelPath, formatPathNotFoundHint } from '../vscode/pathUtils';
-import { ResearchAgent } from '../agent/ResearchAgent';
-import { isAuditSubagentBlocked, buildScriptFirstAuditMessage } from '../agent/auditRouting';
-import type { SubagentTracker } from '../agent/SubagentTracker';
+import { isReadOnlyCommand, stripLeadingCd } from '../plans/PlanActEngine';
+import { normalizeWorkspaceRoot, resolveWorkspaceRelPath, formatPathNotFoundHint } from '../util/paths';
+import { ResearchAgent } from '../runtime/ResearchAgent';
+import { isAuditSubagentBlocked, buildScriptFirstAuditMessage } from '../runtime/auditRouting';
+import type { SubagentTracker } from '../runtime/SubagentTracker';
 import type { LlmProvider } from '../llm/types';
 import type { ToolDefinition } from '../llm/toolTypes';
 import type { ToolExecutor } from '../safety/ToolExecutor';
 import type { SkillCatalogService } from '../skills/SkillCatalogService';
 import { createLogger } from '../telemetry/Logger';
-import { analyzeChangeImpact, discoverProjectCatalog, formatProjectCatalog, saveProjectCatalog } from '../ask';
+import { analyzeChangeImpact, discoverProjectCatalog, formatProjectCatalog, saveProjectCatalog } from '../modes/ask';
 import { filterItemsToScope, normalizeScopeRoot } from '../context/scopeFilter';
 
 const execAsync = promisify(exec);
@@ -751,7 +751,7 @@ export function createMemoryWriteTool(
 export function createSaveTaskStateTool(
   memory: MemoryService,
   getSessionId: () => string,
-  getTaskState?: () => import('../agent/AgentTaskState').AgentTaskState | undefined
+  getTaskState?: () => import('../runtime/AgentTaskState').AgentTaskState | undefined
 ): Tool<{ summary: string; next_step?: string }> {
   return {
     name: 'save_task_state',

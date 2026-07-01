@@ -1,4 +1,4 @@
-import { fitChatRequestToBudget, getMaxInputTokens } from '../agent/PromptBudget';
+import { fitChatRequestToBudget, getMaxInputTokens } from '../runtime/PromptBudget';
 import type { ChatDelta, ChatRequest, LlmProvider, ModelCapabilities } from './types';
 import { estimateTokens } from './tokenEstimate';
 import { createLogger } from '../telemetry/Logger';

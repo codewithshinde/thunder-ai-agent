@@ -1,5 +1,5 @@
 import { useState, useCallback, type KeyboardEvent, useRef, useEffect } from 'react';
-import type { ThunderMode } from '../../../core/ThunderSession';
+import type { ThunderMode } from '../../../core/session/ThunderSession';
 import type {
   ApprovalMode,
   ContextPathSuggestion,

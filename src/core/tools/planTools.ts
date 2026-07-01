@@ -1,8 +1,8 @@
-import type { PlanPersistence } from '../planning/PlanPersistence';
-import type { ThunderPlan } from '../planning/PlanActEngine';
-import type { Tool, ToolResult } from '../tools/types';
+import type { PlanPersistence } from '../plans/PlanPersistence';
+import type { ThunderPlan } from '../plans/PlanActEngine';
+import type { Tool, ToolResult } from './types';
 import { z } from 'zod';
-import { PlanFileStore } from '../planning/PlanFileStore';
+import { PlanFileStore } from '../plans/PlanFileStore';
 import { createLogger } from '../telemetry/Logger';
 
 const log = createLogger('PlanTools');
@@ -47,7 +47,7 @@ export interface PlanToolsContext {
   planFileStore?: PlanFileStore;
   getSessionId: () => string;
   /** Unlocks write tools when a mutation pivots to execute phase mid-step. */
-  setPlanPhaseLock?: (phase: import('../planning/PlanActEngine').PlanPhase | undefined) => void;
+  setPlanPhaseLock?: (phase: import('../plans/PlanActEngine').PlanPhase | undefined) => void;
 }
 
 export function createMarkStepCompleteTool(ctx: PlanToolsContext): Tool<{ stepId: string }> {

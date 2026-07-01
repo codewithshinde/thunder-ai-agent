@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { brandMessage } from '../../shared/brand';
-import type { ThunderController } from '../../core/ThunderController';
+import type { ThunderController } from '../../core/app/ThunderController';
 import { setGitCommitInputBox } from './ScmInputBoxBridge';
 
 export function registerScmContributions(

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AgentLoop } from '../src/core/agent/AgentLoop';
+import { AgentLoop } from '../src/core/runtime/AgentLoop';
 import type { ToolExecutor } from '../src/core/safety/ToolExecutor';
 import type { LlmProvider } from '../src/core/llm/types';
-import type { ThunderPlan } from '../src/core/planning/PlanActEngine';
+import type { ThunderPlan } from '../src/core/plans/PlanActEngine';
 
 function mockProvider(responses: Array<Record<string, unknown>>): LlmProvider {
   let call = 0;
@@ -272,7 +272,7 @@ describe('PlanFileStore', () => {
     const { mkdtempSync, rmSync, readFileSync, existsSync } = await import('fs');
     const { join } = await import('path');
     const { tmpdir } = await import('os');
-    const { PlanFileStore } = await import('../src/core/planning/PlanFileStore');
+    const { PlanFileStore } = await import('../src/core/plans/PlanFileStore');
 
     const dir = mkdtempSync(join(tmpdir(), 'thunder-plan-'));
     const store = new PlanFileStore(dir, 'task-123');

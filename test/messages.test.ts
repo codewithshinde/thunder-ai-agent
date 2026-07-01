@@ -28,7 +28,7 @@ describe('ToolExecutor', () => {
     const { ToolRuntime } = await import('../src/core/tools/ToolRuntime');
     const { ToolPolicyEngine } = await import('../src/core/safety/ToolPolicyEngine');
     const { ApprovalQueue } = await import('../src/core/safety/ApprovalQueue');
-    const { defaultThunderConfig } = await import('../src/core/config/schema');
+    const { defaultThunderConfig } = await import('../src/core/config/defaults');
     const { createWriteFileTool } = await import('../src/core/tools/builtinTools');
     const { IgnoreService } = await import('../src/core/indexing/IgnoreService');
 

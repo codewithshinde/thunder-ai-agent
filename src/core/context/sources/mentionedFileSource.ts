@@ -7,7 +7,7 @@ import {
   expandCamelCaseTerms,
   globPatternsForMention,
 } from '../fuzzyFileMatch';
-import { createWorkspacePattern, canUseVscodeFindFiles, toWorkspaceRelPath } from '../../vscode/pathUtils';
+import { createWorkspacePattern, canUseVscodeFindFiles, toWorkspaceRelPath } from '../../util/paths';
 import { createLogger } from '../../telemetry/Logger';
 
 const log = createLogger('MentionedFileSource');

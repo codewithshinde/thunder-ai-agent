@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ThunderController } from '../core/ThunderController';
+import { ThunderController } from '../core/app/ThunderController';
 import { ThunderWebviewProvider } from './webview/ThunderWebviewProvider';
 import { registerScmContributions } from './scm/registerScmContributions';
 

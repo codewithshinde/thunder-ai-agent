@@ -3,7 +3,7 @@ import { SkillCatalogService } from '../src/core/skills/SkillCatalogService';
 import {
   loadPlanningSkillPlaybooks,
   resolvePlanningSkillNames,
-} from '../src/core/plan/planSkillRouting';
+} from '../src/core/modes/plan/planSkillRouting';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';

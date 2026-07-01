@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ActOrchestrator, filterActModeTools, routeActIntent, shouldResumeSavedPlan } from '../../src/core/act';
-import { analyzeTask } from '../../src/core/agent/TaskAnalyzer';
+import { ActOrchestrator, filterActModeTools, routeActIntent, shouldResumeSavedPlan } from '../../src/core/modes/agent';
+import { analyzeTask } from '../../src/core/runtime/TaskAnalyzer';
 import { resolveMaxContextItems } from '../../src/core/context/resolveMaxContextItems';
 import type { ToolDefinition } from '../../src/core/llm/toolTypes';
-import { buildSystemPrompt } from '../../src/core/planning/promptBuilder';
+import { buildSystemPrompt } from '../../src/core/plans/promptBuilder';
 import type { SkillCatalogService } from '../../src/core/skills/SkillCatalogService';
 
 describe('Act orchestration boundary', () => {

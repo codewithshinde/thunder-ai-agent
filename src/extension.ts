@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ThunderController } from './core/ThunderController';
+import { ThunderController } from './core/app/ThunderController';
 import { registerCommands } from './vscode/commands';
 import { ThunderWebviewProvider } from './vscode/webview/ThunderWebviewProvider';
 import { createLogger } from './core/telemetry/Logger';

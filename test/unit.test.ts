@@ -17,7 +17,7 @@ import { isDangerousCommand, isDeleteLikeCommand } from '../src/core/safety/Tool
 import { ToolPolicyEngine } from '../src/core/safety/ToolPolicyEngine';
 import { ContextBudgeter } from '../src/core/context/ContextBudgeter';
 import type { ContextItem } from '../src/core/context/types';
-import { defaultThunderConfig } from '../src/core/config/schema';
+import { defaultThunderConfig } from '../src/core/config/defaults';
 import { estimateTokens } from '../src/core/llm/tokenEstimate';
 import { UsageTrackingProvider } from '../src/core/llm/UsageTrackingProvider';
 import { ProjectRulesService } from '../src/core/rules/ProjectRulesService';
@@ -671,7 +671,7 @@ describe('Config schema', () => {
 
 describe('Plan/Act task analysis', () => {
   it('plans actionable requests in plan mode without marking them for execution verification', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const analysis = analyzeTask('Implement a solid planning mode and separate act mode', 'plan');
 
     expect(analysis.kind).toBe('implementation');
@@ -681,7 +681,7 @@ describe('Plan/Act task analysis', () => {
   });
 
   it('plans and verifies actionable requests in agent mode', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const analysis = analyzeTask('Implement a solid planning mode and separate act mode', 'agent');
 
     expect(analysis.kind).toBe('implementation');
@@ -690,7 +690,7 @@ describe('Plan/Act task analysis', () => {
   });
 
   it('treats ask mode as read-only question answering', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const analysis = analyzeTask('implement auth and add tests for all routes', 'ask');
 
     expect(analysis.kind).toBe('question');
@@ -705,7 +705,7 @@ describe('Plan/Act task analysis', () => {
 
 describe('Ask mode helpers', () => {
   it('filters tools to the Ask allowlist', async () => {
-    const { filterAskModeTools, ASK_ALLOWED_TOOLS } = await import('../src/core/agent/askMode');
+    const { filterAskModeTools, ASK_ALLOWED_TOOLS } = await import('../src/core/runtime/askMode');
     const tools = [
       { type: 'function' as const, function: { name: 'read_file', description: '', parameters: {} } },
       { type: 'function' as const, function: { name: 'write_file', description: '', parameters: {} } },
@@ -721,7 +721,7 @@ describe('Ask mode helpers', () => {
 
   it('detects when Ask answers need grounding', async () => {
     const { needsAskGrounding, isGeneralKnowledgeQuestion, shouldEnableAskSubagents } =
-      await import('../src/core/agent/askMode');
+      await import('../src/core/runtime/askMode');
 
     expect(needsAskGrounding('Where is ChatOrchestrator.send defined?')).toBe(true);
     expect(needsAskGrounding('hi')).toBe(false);
@@ -760,7 +760,7 @@ describe('Ask mode helpers', () => {
 
 describe('ThunderMode normalization', () => {
   it('maps legacy act to agent', async () => {
-    const { normalizeThunderMode } = await import('../src/core/ThunderSession');
+    const { normalizeThunderMode } = await import('../src/core/session/ThunderSession');
     expect(normalizeThunderMode('act')).toBe('agent');
     expect(normalizeThunderMode('ask')).toBe('ask');
     expect(normalizeThunderMode('unknown')).toBe('plan');
@@ -769,7 +769,7 @@ describe('ThunderMode normalization', () => {
 
 describe('Plan parser', () => {
   it('flattens rich phase plans into executable steps', async () => {
-    const { parsePlanFromText } = await import('../src/core/planning/PlanActEngine');
+    const { parsePlanFromText } = await import('../src/core/plans/PlanActEngine');
     const parsed = parsePlanFromText(`\`\`\`json
 {
   "goal": "Improve planning",
@@ -786,7 +786,7 @@ describe('Plan parser', () => {
           "title": "Inspect mode routing",
           "tools": ["read_file"],
           "successCriteria": ["Mode branch is understood"],
-          "files": ["src/core/ChatOrchestrator.ts"],
+          "files": ["src/core/orchestration/ChatOrchestrator.ts"],
           "risk": "low"
         }
       ]
@@ -804,7 +804,7 @@ describe('Plan parser', () => {
   });
 
   it('keeps generated plan phases mode-aware', async () => {
-    const { PlanExecutor } = await import('../src/core/agent/PlanExecutor');
+    const { PlanExecutor } = await import('../src/core/runtime/PlanExecutor');
     const provider = {
       id: 'fake',
       capabilities: {
@@ -853,7 +853,7 @@ describe('Plan parser', () => {
   });
 
   it('fails an explicit scripted plan step when its command fails', async () => {
-    const { PlanExecutor } = await import('../src/core/agent/PlanExecutor');
+    const { PlanExecutor } = await import('../src/core/runtime/PlanExecutor');
     const plan = {
       goal: 'Verify package',
       assumptions: [],
@@ -914,7 +914,7 @@ describe('Plan parser', () => {
   });
 
   it('does not reuse stale agent-loop approval state after an explicit step succeeds', async () => {
-    const { PlanExecutor } = await import('../src/core/agent/PlanExecutor');
+    const { PlanExecutor } = await import('../src/core/runtime/PlanExecutor');
     const plan = {
       goal: 'Verify package',
       assumptions: [],
@@ -1049,7 +1049,7 @@ describe('codeEditParser', () => {
 
 describe('ContextCompaction', () => {
   it('keeps recent messages within budget', async () => {
-    const { compactMessages } = await import('../src/core/agent/ContextCompaction');
+    const { compactMessages } = await import('../src/core/runtime/ContextCompaction');
     const messages = Array.from({ length: 10 }, (_, i) => ({
       role: 'user' as const,
       content: `message ${i} `.repeat(50),
@@ -1109,7 +1109,7 @@ describe('autonomyPresets', () => {
 
 describe('shouldDecomposeTask', () => {
   it('decomposes implementation tasks and explicit plan requests in act mode', async () => {
-    const { shouldDecomposeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { shouldDecomposeTask } = await import('../src/core/runtime/TaskAnalyzer');
     expect(
       shouldDecomposeTask('implement auth and then add tests step by step for all routes', 'agent')
     ).toBe(true);
@@ -1125,7 +1125,7 @@ describe('shouldDecomposeTask', () => {
 
 describe('TaskAnalyzer', () => {
   it('classifies task kinds', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const audit = analyzeTask('find unused dependencies and clean up dead code', 'agent');
     expect(audit.kind).toBe('audit');
     expect(audit.shouldPlan).toBe(true);
@@ -1141,7 +1141,7 @@ describe('TaskAnalyzer', () => {
   });
 
   it('classifies UI polish requests with typos as implementation work', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const result = analyzeTask(
       '@src/utils/kitchen-status.ts Can you imporve the Ui and UX of this file and also its child compoenents, cards and all',
       'agent'
@@ -1153,7 +1153,7 @@ describe('TaskAnalyzer', () => {
   });
 
   it('treats short product/action trigger words as implementation work', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const result = analyzeTask('need animated enterprise landing page UI', 'agent');
 
     expect(result.kind).toBe('implementation');
@@ -1162,7 +1162,7 @@ describe('TaskAnalyzer', () => {
   });
 
   it('plans broad documentation feature work', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const result = analyzeTask('add docs for all ffb-mui features', 'agent');
 
     expect(result.kind).toBe('implementation');
@@ -1211,7 +1211,7 @@ describe('context query expansion', () => {
 
 describe('taskKind', () => {
   it('detects audit/cleanup tasks', async () => {
-    const { isAuditCleanupTask } = await import('../src/core/agent/taskKind');
+    const { isAuditCleanupTask } = await import('../src/core/runtime/taskKind');
     expect(isAuditCleanupTask('identify and remove unused files and dependencies')).toBe(true);
     expect(isAuditCleanupTask('what does this project do?')).toBe(false);
   });
@@ -1219,14 +1219,14 @@ describe('taskKind', () => {
 
 describe('TaskAnalyzer', () => {
   it('does not re-plan approval continuations', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const result = analyzeTask('Continue the current approved task from where it paused.\nOriginal user request: refactor app', 'agent');
     expect(result.shouldPlan).toBe(false);
     expect(result.summary).toContain('resume');
   });
 
   it('classifies cleanup tasks with common typos as audit', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const result = analyzeTask(
       'Can you remove all the unsed imports and files and dependencies from the entire porject',
       'agent'
@@ -1240,7 +1240,7 @@ describe('TaskAnalyzer', () => {
 describe('auditRouting', () => {
   it('detects dependency enumeration subagent tasks', async () => {
     const { isDependencyEnumerationTask, estimateSubagentAuditSeconds, estimateScriptAuditSeconds } =
-      await import('../src/core/agent/auditRouting');
+      await import('../src/core/runtime/auditRouting');
     expect(isDependencyEnumerationTask('Check each of the 64 npm dependencies for usage')).toBe(true);
     expect(isDependencyEnumerationTask('Find unused dependencies in package.json')).toBe(true);
     expect(isDependencyEnumerationTask('Map the src folder structure')).toBe(false);
@@ -1271,7 +1271,7 @@ describe('auditRouting', () => {
   });
 
   it('blocks Audit unused npm dependencies task from log', async () => {
-    const { isDependencyEnumerationTask } = await import('../src/core/agent/auditRouting');
+    const { isDependencyEnumerationTask } = await import('../src/core/runtime/auditRouting');
     const task =
       'Audit unused npm dependencies in this project. For each dependency in package.json, search whether it is actually imported';
     expect(isDependencyEnumerationTask(task)).toBe(true);
@@ -1280,8 +1280,8 @@ describe('auditRouting', () => {
 
 describe('shouldUsePlanner', () => {
   it('skips planner for audit tasks in act mode', async () => {
-    const { shouldUsePlanner } = await import('../src/core/ChatOrchestrator');
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { shouldUsePlanner } = await import('../src/core/orchestration/ChatOrchestrator');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const analysis = analyzeTask('remove unused imports and dependencies', 'agent');
     expect(analysis.kind).toBe('audit');
     expect(shouldUsePlanner('agent', analysis, true, true)).toBe(false);
@@ -1290,7 +1290,7 @@ describe('shouldUsePlanner', () => {
   });
 
   it('removes plan-only tools from direct agent runs', async () => {
-    const { filterDirectAgentTools, shouldRunDirectFinalValidation } = await import('../src/core/ChatOrchestrator');
+    const { filterDirectAgentTools, shouldRunDirectFinalValidation } = await import('../src/core/orchestration/ChatOrchestrator');
     const tools = [
       { type: 'function', function: { name: 'read_file', description: '', parameters: {} } },
       { type: 'function', function: { name: 'mark_step_complete', description: '', parameters: {} } },
@@ -1310,7 +1310,7 @@ describe('shouldUsePlanner', () => {
 
 describe('AgentTaskState', () => {
   it('blocks repeated depcheck after analyze completes', async () => {
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.setTaskContext('audit', 'Audit/cleanup task', 'remove unused dependencies');
     state.recordToolSuccess('run_command', { command: 'npx depcheck' }, 'Unused: foo');
@@ -1323,7 +1323,7 @@ describe('AgentTaskState', () => {
   });
 
   it('allows depcheck again after write_file', async () => {
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.setTaskContext('audit', 'Audit/cleanup task', 'remove unused dependencies');
     state.recordToolSuccess('run_command', { command: 'npx depcheck' }, 'Unused: foo');
@@ -1333,7 +1333,7 @@ describe('AgentTaskState', () => {
   });
 
   it('blocks repeated verification after edits already verified', async () => {
-    const { AgentTaskState, normalizeDiagnosticKey } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState, normalizeDiagnosticKey } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.setTaskContext(
       'simple_edit',
@@ -1359,7 +1359,7 @@ describe('AgentTaskState', () => {
   });
 
   it('builds pause summary with next step hint', async () => {
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.setTaskContext('audit', 'Audit/cleanup task', 'remove unused dependencies');
     state.recordToolSuccess('run_command', { command: 'npx depcheck' }, 'Unused dependencies\n* @date-io/dayjs');
@@ -1369,7 +1369,7 @@ describe('AgentTaskState', () => {
   });
 
   it('returns soft block with cached eslint output in execute phase', async () => {
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.recordToolSuccess('run_command', { command: 'npx eslint src/' }, 'no-unused-vars: 3 errors');
     expect(state.getPhase()).toBe('execute');
@@ -1381,7 +1381,7 @@ describe('AgentTaskState', () => {
   });
 
   it('uses MDX repair guidance instead of audit cleanup guidance', async () => {
-    const { AgentTaskState } = await import('../src/core/agent/AgentTaskState');
+    const { AgentTaskState } = await import('../src/core/runtime/AgentTaskState');
     const state = new AgentTaskState();
     state.setTaskContext(
       'simple_edit',
@@ -1429,7 +1429,7 @@ describe('tool input coercion', () => {
 
 describe('PlanActEngine read-only shell', () => {
   it('allows inspection commands in plan mode', async () => {
-    const { isShellAllowed, isReadOnlyCommand, isToolAllowedInPlanPhase, stripLeadingCd } = await import('../src/core/planning/PlanActEngine');
+    const { isShellAllowed, isReadOnlyCommand, isToolAllowedInPlanPhase, stripLeadingCd } = await import('../src/core/plans/PlanActEngine');
     expect(isReadOnlyCommand('npx depcheck')).toBe(true);
     expect(isReadOnlyCommand('cd /home/user && rg "foo" src')).toBe(true);
     expect(isReadOnlyCommand("sed -n '70,90p' src/screens/printer/printer.tsx")).toBe(true);
@@ -1451,7 +1451,7 @@ describe('PlanActEngine read-only shell', () => {
   });
 
   it('upgrades write-intent steps from diagnostics to execute in agent mode', async () => {
-    const { resolveStepPhaseLock, stepImpliesWrite } = await import('../src/core/planning/PlanActEngine');
+    const { resolveStepPhaseLock, stepImpliesWrite } = await import('../src/core/plans/PlanActEngine');
     expect(stepImpliesWrite({ title: 'Audit Current Implementation & Identify Bugs' })).toBe(false);
     expect(stepImpliesWrite({ title: 'Fix ReferenceError & Prepare Theme Utilities' })).toBe(true);
     expect(
@@ -1473,13 +1473,13 @@ describe('PlanActEngine read-only shell', () => {
   });
 
   it('detects phase-lock write errors', async () => {
-    const { isPhaseLockWriteError } = await import('../src/core/planning/PlanActEngine');
+    const { isPhaseLockWriteError } = await import('../src/core/plans/PlanActEngine');
     expect(isPhaseLockWriteError('Phase 1 (Diagnostics) is read-only; file writes are locked until Phase 3 (Execute).')).toBe(true);
     expect(isPhaseLockWriteError('Patch failed')).toBe(false);
   });
 
   it('detects phase-lock run_command errors', async () => {
-    const { isPhaseLockRunCommandError } = await import('../src/core/planning/PlanActEngine');
+    const { isPhaseLockRunCommandError } = await import('../src/core/plans/PlanActEngine');
     expect(isPhaseLockRunCommandError('Phase 4 (Verify) allows diagnostics, lint, tests, builds, and targeted file fixes, not arbitrary shell commands.')).toBe(true);
     expect(isPhaseLockRunCommandError('Phase 1 (Diagnostics) allows only read-only shell commands.')).toBe(true);
     expect(isPhaseLockRunCommandError('Command exited with code 1')).toBe(false);
@@ -1488,7 +1488,7 @@ describe('PlanActEngine read-only shell', () => {
 
 describe('verifyCommandDiscovery', () => {
   it('skips missing npm scripts and placeholder npm tests', async () => {
-    const { resolveProjectVerifyCommands } = await import('../src/core/agent/verifyCommandDiscovery');
+    const { resolveProjectVerifyCommands } = await import('../src/core/runtime/verifyCommandDiscovery');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-verify-npm-test-'));
     try {
       writeFileSync(join(tempDir, 'package.json'), JSON.stringify({
@@ -1509,7 +1509,7 @@ describe('verifyCommandDiscovery', () => {
   });
 
   it('uses the first matching docs build command from workspace suggestions', async () => {
-    const { resolveProjectVerifyCommands } = await import('../src/core/agent/verifyCommandDiscovery');
+    const { resolveProjectVerifyCommands } = await import('../src/core/runtime/verifyCommandDiscovery');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-verify-docs-test-'));
     try {
       const docsDir = join(tempDir, 'apps/docs');
@@ -1537,7 +1537,7 @@ describe('verifyCommandDiscovery', () => {
   });
 
   it('adds docs build verification when docs files changed and default verify scripts are missing', async () => {
-    const { resolveProjectVerifyCommands } = await import('../src/core/agent/verifyCommandDiscovery');
+    const { resolveProjectVerifyCommands } = await import('../src/core/runtime/verifyCommandDiscovery');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-verify-docs-touched-test-'));
     try {
       const docsDir = join(tempDir, 'apps/docs');
@@ -1565,7 +1565,7 @@ describe('verifyCommandDiscovery', () => {
   });
 
   it('discovers non-JS test commands from manifests only when appropriate', async () => {
-    const { resolveProjectVerifyCommands } = await import('../src/core/agent/verifyCommandDiscovery');
+    const { resolveProjectVerifyCommands } = await import('../src/core/runtime/verifyCommandDiscovery');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-verify-polyglot-test-'));
     try {
       writeFileSync(join(tempDir, 'pom.xml'), '<project />');
@@ -1584,20 +1584,20 @@ describe('verifyCommandDiscovery', () => {
 
 describe('pathUtils', () => {
   it('normalizes "." to empty root', async () => {
-    const { normalizeRelPath } = await import('../src/core/vscode/pathUtils');
+    const { normalizeRelPath } = await import('../src/core/util/paths');
     expect(normalizeRelPath('.')).toBe('');
     expect(normalizeRelPath('./src/foo.ts')).toBe('src/foo.ts');
   });
 
   it('rejects invalid workspace roots', async () => {
-    const { normalizeWorkspaceRoot } = await import('../src/core/vscode/pathUtils');
+    const { normalizeWorkspaceRoot } = await import('../src/core/util/paths');
     expect(normalizeWorkspaceRoot('')).toBeNull();
     expect(normalizeWorkspaceRoot('   ')).toBeNull();
     expect(normalizeWorkspaceRoot('/tmp')).toMatch(/tmp/);
   });
 
   it('strips embedded workspace root from pseudo-absolute paths', async () => {
-    const { resolveWorkspaceRelPath } = await import('../src/core/vscode/pathUtils');
+    const { resolveWorkspaceRelPath } = await import('../src/core/util/paths');
     const ws = '/Users/me/proj';
     expect(resolveWorkspaceRelPath(ws, 'Users/me/proj/apps/docs/config.ts')).toBe('apps/docs/config.ts');
     expect(resolveWorkspaceRelPath(ws, '/Users/me/proj/apps/docs/config.ts')).toBe('apps/docs/config.ts');
@@ -1605,7 +1605,7 @@ describe('pathUtils', () => {
   });
 
   it('suggests extension variants for missing paths', async () => {
-    const { pathExistenceVariants } = await import('../src/core/vscode/pathUtils');
+    const { pathExistenceVariants } = await import('../src/core/util/paths');
     const variants = pathExistenceVariants('apps/docs/docusaurus.config.js');
     expect(variants).toContain('apps/docs/docusaurus.config.ts');
   });
@@ -1634,7 +1634,7 @@ describe('toolAliases', () => {
 
 describe('promptBuilder', () => {
   it('includes cause-specific MDX generic repair guidance', async () => {
-    const { buildSystemPrompt } = await import('../src/core/planning/promptBuilder');
+    const { buildSystemPrompt } = await import('../src/core/plans/promptBuilder');
     const prompt = buildSystemPrompt('agent', true);
 
     expect(prompt).toContain('Unexpected character `,` in name');
@@ -1836,7 +1836,7 @@ describe('MemoryService FTS', () => {
 
 describe('SubagentTracker', () => {
   it('tracks run lifecycle', async () => {
-    const { SubagentTracker } = await import('../src/core/agent/SubagentTracker');
+    const { SubagentTracker } = await import('../src/core/runtime/SubagentTracker');
     const tracker = new SubagentTracker();
     const updates: number[] = [];
     tracker.setUpdateCallback((runs) => updates.push(runs.length));
@@ -1974,7 +1974,7 @@ describe('UserExplicitContextBuilder', () => {
 
 describe('buildPrompt explicit context', () => {
   it('places user_explicit_context before codebase context', async () => {
-    const { buildPrompt } = await import('../src/core/planning/promptBuilder');
+    const { buildPrompt } = await import('../src/core/plans/promptBuilder');
     const pack = {
       items: [],
       totalTokens: 0,
@@ -2005,7 +2005,7 @@ describe('buildPrompt explicit context', () => {
 
 describe('TaskAnalyzer direct error fix', () => {
   it('routes syntax/compiler errors to direct execution without replanning', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const message = `Syntax error: Missing semicolon. (2:28)
 src/screens/kitchen-screen/components/DineInKanban.tsx
 
@@ -2019,7 +2019,7 @@ src/screens/kitchen-screen/components/DineInKanban.tsx
   });
 
   it('routes MDX compilation failures to direct exact-file repair', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const analysis = analyzeTask(
       'Error: MDX compilation failed for file "/repo/apps/docs/docs/ffb-mui/api/formik-renderer.md" Cause: Unexpected character `,`',
       'agent'
@@ -2033,7 +2033,7 @@ src/screens/kitchen-screen/components/DineInKanban.tsx
   });
 
   it('routes module resolution failures in docs builds to direct repair', async () => {
-    const { analyzeTask } = await import('../src/core/agent/TaskAnalyzer');
+    const { analyzeTask } = await import('../src/core/runtime/TaskAnalyzer');
     const analysis = analyzeTask(
       "Module not found: Error: Can't resolve 'ffb-mui' in '/repo/apps/docs/src/components'",
       'agent'
@@ -2048,7 +2048,7 @@ src/screens/kitchen-screen/components/DineInKanban.tsx
 describe('mdxRepairRouting', () => {
   it('detects pasted Docusaurus build failures', async () => {
     const { isMdxRepairTask, extractMdxErrorFile, buildMdxRepairBootstrapBlock } = await import(
-      '../src/core/agent/mdxRepairRouting'
+      '../src/core/runtime/mdxRepairRouting'
     );
     const text = `Compiled with problems:
 ERROR in ./docs/ffb-mui/api/formik-renderer.md
@@ -2169,7 +2169,7 @@ describe('run_command exit codes', () => {
 
 describe('Ask v2 routing, scope, and impact', () => {
   it('routes canonical Ask intents and profiles', async () => {
-    const { routeAskIntent } = await import('../src/core/ask');
+    const { routeAskIntent } = await import('../src/core/modes/ask');
 
     expect(routeAskIntent('Where is Ask mode defined?')).toMatchObject({
       intent: 'locate',
@@ -2195,7 +2195,7 @@ describe('Ask v2 routing, scope, and impact', () => {
 
   it('discovers monorepo projects and persists a catalog file', async () => {
     const { discoverProjectCatalog, saveProjectCatalog, loadProjectCatalog, formatProjectCatalog } =
-      await import('../src/core/ask');
+      await import('../src/core/modes/ask');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-project-catalog-test-'));
     try {
       writeFileSync(join(tempDir, 'pnpm-workspace.yaml'), ['packages:', "  - 'apps/*'", "  - 'packages/*'"].join('\n'));
@@ -2228,7 +2228,7 @@ describe('Ask v2 routing, scope, and impact', () => {
   });
 
   it('resolves explicit, type-based, and cross-project scopes', async () => {
-    const { resolveAskScope } = await import('../src/core/ask');
+    const { resolveAskScope } = await import('../src/core/modes/ask');
     const catalog = {
       workspaceRoot: '/tmp/repo',
       generatedAt: 'now',
@@ -2250,7 +2250,7 @@ describe('Ask v2 routing, scope, and impact', () => {
   });
 
   it('analyzes likely affected files without mutating source files', async () => {
-    const { analyzeChangeImpact } = await import('../src/core/ask');
+    const { analyzeChangeImpact } = await import('../src/core/modes/ask');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-impact-test-'));
     try {
       mkdirSync(join(tempDir, 'src/core/auth'), { recursive: true });
@@ -2304,7 +2304,7 @@ describe('Ask v2 routing, scope, and impact', () => {
   });
 
   it('prepares a headless Ask run plan for SDK-compatible callers', async () => {
-    const { AskOrchestrator } = await import('../src/core/ask');
+    const { AskOrchestrator } = await import('../src/core/modes/ask');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-ask-orchestrator-test-'));
     try {
       writeFileSync(join(tempDir, 'package.json'), JSON.stringify({ name: 'ask-app' }));
@@ -2324,7 +2324,7 @@ describe('Ask v2 routing, scope, and impact', () => {
   });
 
   it('uses Ask step ceilings instead of overriding every intent with the setting', async () => {
-    const { AskOrchestrator } = await import('../src/core/ask');
+    const { AskOrchestrator } = await import('../src/core/modes/ask');
 
     expect(AskOrchestrator.prepare('Where is Ask mode defined?', {
       configuredMaxSteps: 18,
@@ -2346,7 +2346,7 @@ describe('Ask v2 routing, scope, and impact', () => {
   });
 
   it('loads cached project catalogs during Ask preparation', async () => {
-    const { AskOrchestrator } = await import('../src/core/ask');
+    const { AskOrchestrator } = await import('../src/core/modes/ask');
     const tempDir = mkdtempSync(join(tmpdir(), 'thunder-ask-cached-catalog-test-'));
     try {
       mkdirSync(join(tempDir, '.mitii'), { recursive: true });
@@ -2405,7 +2405,7 @@ describe('Ask v2 routing, scope, and impact', () => {
   });
 
   it('injects deep Ask instructions into prompts without applying concise global prose rules', async () => {
-    const { buildPrompt, buildSystemPrompt } = await import('../src/core/planning/promptBuilder');
+    const { buildPrompt, buildSystemPrompt } = await import('../src/core/plans/promptBuilder');
 
     const system = buildSystemPrompt('ask', true);
     expect(system).toContain('technical blog post');

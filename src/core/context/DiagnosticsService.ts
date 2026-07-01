@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { ContextItem, ContextQuery, ContextSource } from './types';
 import { GitService } from './GitService';
-import { toWorkspaceRelPath } from '../vscode/pathUtils';
+import { toWorkspaceRelPath } from '../util/paths';
 import { isDiagnosticsRelevant } from './contextRelevance';
 
 export class GitDiffContextSource implements ContextSource {

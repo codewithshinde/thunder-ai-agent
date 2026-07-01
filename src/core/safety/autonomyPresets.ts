@@ -1,5 +1,5 @@
 import type { SafetyConfig } from '../config/schema';
-import type { AutonomyPreset } from '../planning/PlanActEngine';
+import type { AutonomyPreset } from '../plans/PlanActEngine';
 
 export type ApprovalMode = NonNullable<SafetyConfig['approvalMode']>;
 

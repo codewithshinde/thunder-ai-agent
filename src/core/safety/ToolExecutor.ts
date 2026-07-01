@@ -1,7 +1,7 @@
 import type { ToolRuntime } from '../tools/ToolRuntime';
 import type { ToolPolicyEngine } from './ToolPolicyEngine';
 import type { ApprovalQueue } from './ApprovalQueue';
-import type { AgentTaskState } from '../agent/AgentTaskState';
+import type { AgentTaskState } from '../runtime/AgentTaskState';
 import {
   isWriteAllowed,
   isShellAllowed,
@@ -10,10 +10,10 @@ import {
   isToolAllowedInPlanPhase,
   isPhaseLockWriteError,
   type PlanPhase,
-} from '../planning/PlanActEngine';
+} from '../plans/PlanActEngine';
 import { resolveToolName } from '../tools/toolAliases';
-import { normalizeThunderMode } from '../ThunderSession';
-import { isAskAllowedTool } from '../agent/askMode';
+import { normalizeThunderMode } from '../session/ThunderSession';
+import { isAskAllowedTool } from '../runtime/askMode';
 import { createLogger } from '../telemetry/Logger';
 import type { SessionLogService } from '../telemetry/SessionLogService';
 

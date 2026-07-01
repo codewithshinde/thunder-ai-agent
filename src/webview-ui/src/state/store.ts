@@ -1,4 +1,4 @@
-import type { ThunderMode } from '../../../core/ThunderSession';
+import type { ThunderMode } from '../../../core/session/ThunderSession';
 import type {
   ChatMessage,
   WebviewState,
