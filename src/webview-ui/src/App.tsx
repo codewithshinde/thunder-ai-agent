@@ -179,6 +179,8 @@ export function App() {
               agentActivity={state.agentActivity}
               agentLiveStatus={state.agentLiveStatus}
               approvals={state.approvals}
+              showReasoning={state.settings.showReasoning}
+              reasoningPreviewMaxChars={state.settings.reasoningPreviewMaxChars}
             />
           </div>
           <footer className="chat-footer">

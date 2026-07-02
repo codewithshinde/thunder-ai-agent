@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.7.16",
+  "version": "2.7.17",
   "publisher": "mitii",
   "icon": "media/mitii-short-logo.png",
   "license": "AGPL-3.0-or-later",
@@ -45,9 +45,15 @@
     "onCommand:thunder.openChat",
     "onCommand:thunder.indexWorkspace",
     "onCommand:thunder.showSettings",
-    "onCommand:thunder.generateCommitMessage"
+    "onCommand:thunder.generateCommitMessage",
+    "onCommand:thunder.generateChangelog",
+    "onCommand:thunder.prepareRelease",
+    "onCommand:thunder.exportAuditPack"
   ],
   "main": "./dist/extension.js",
+  "bin": {
+    "mitii": "./bin/mitii.js"
+  },
   "contributes": {
     "commands": [
       {
@@ -68,6 +74,11 @@
       {
         "command": "thunder.exportSessionLog",
         "title": "Mitii: Export Session Log",
+        "category": "Mitii"
+      },
+      {
+        "command": "thunder.exportAuditPack",
+        "title": "Mitii: Export Audit Pack",
         "category": "Mitii"
       },
       {
@@ -95,6 +106,16 @@
         "title": "Mitii: Generate Commit Message",
         "category": "Mitii",
         "icon": "media/mitii-activitybar.svg"
+      },
+      {
+        "command": "thunder.generateChangelog",
+        "title": "Mitii: Generate Changelog Entry",
+        "category": "Mitii"
+      },
+      {
+        "command": "thunder.prepareRelease",
+        "title": "Mitii: Prepare Release",
+        "category": "Mitii"
       }
     ],
     "menus": {
@@ -141,6 +162,33 @@
           "type": "boolean",
           "default": false,
           "description": "Capture extra session diagnostics (tool inputs, context sources, LLM step metadata). Process timing is always logged when session logging is on."
+        },
+        "thunder.ui.showReasoning": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show streamed model reasoning when the provider returns reasoning deltas."
+        },
+        "thunder.ui.reasoningPreviewMaxChars": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 0,
+          "maximum": 100000,
+          "description": "Maximum reasoning characters shown inline. Set 0 to show all reasoning."
+        },
+        "thunder.enterprise.localProvidersOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enterprise policy flag documenting that only local providers should be used for this workspace."
+        },
+        "thunder.enterprise.stripFileContentsFromAuditPacks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Strip file contents and large tool outputs from exported audit packs while preserving metadata."
+        },
+        "thunder.enterprise.autoExportAuditPackOnSessionEnd": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reserved enterprise toggle for exporting audit packs automatically when a session ends."
         },
         "thunder.provider.type": {
           "type": "string",
@@ -258,6 +306,11 @@
           "minimum": 3,
           "maximum": 30,
           "description": "Number of items to keep after reranking"
+        },
+        "thunder.context.microTaskRoutingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Route narrow chat requests such as commit messages, changelog entries, and release notes through minimal Git context instead of the full agent loop."
         },
         "thunder.safety.requireApprovalForWrites": {
           "type": "boolean",
@@ -530,7 +583,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "npm run compile:extension && npm run compile:webview",
+    "compile": "npm run compile:extension && npm run compile:webview && npm run compile:cli",
     "setup": "bash scripts/dev-setup.sh",
     "setup:cursor": "THUNDER_EDITOR=cursor bash scripts/dev-setup.sh",
     "rebuild:native": "node scripts/rebuild-native.mjs",
@@ -541,6 +594,7 @@
     "version:bump": "node scripts/bump-version.mjs",
     "compile:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --packages=external --platform=node --format=cjs --sourcemap",
     "compile:webview": "vite build",
+    "compile:cli": "esbuild src/node/cli.ts --bundle --outfile=dist/cli.js --platform=node --format=cjs --packages=external",
     "watch": "concurrently \"npm run watch:extension\" \"npm run watch:webview\"",
     "watch:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --packages=external --platform=node --format=cjs --sourcemap --watch",
     "watch:webview": "vite build --watch",

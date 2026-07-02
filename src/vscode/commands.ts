@@ -27,8 +27,20 @@ export function registerCommands(
       await controller.exportSessionLog();
     }),
 
+    vscode.commands.registerCommand('thunder.exportAuditPack', async () => {
+      await controller.exportAuditPack();
+    }),
+
     vscode.commands.registerCommand('thunder.openSessionLog', async () => {
       await controller.openSessionLog();
+    }),
+
+    vscode.commands.registerCommand('thunder.generateChangelog', async () => {
+      await controller.generateChangelog();
+    }),
+
+    vscode.commands.registerCommand('thunder.prepareRelease', async () => {
+      await controller.prepareRelease();
     }),
 
     vscode.commands.registerCommand('thunder.showInlineDiff', async (approvalId?: string) => {

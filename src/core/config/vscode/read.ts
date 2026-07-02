@@ -39,6 +39,7 @@ export function readThunderConfigFromSettings(): ThunderConfig {
       rerankerEnabled: config.get<boolean>('context.rerankerEnabled'),
       rerankerCandidatePool: config.get<number>('context.rerankerCandidatePool'),
       rerankerTopK: config.get<number>('context.rerankerTopK'),
+      microTaskRoutingEnabled: config.get<boolean>('context.microTaskRoutingEnabled'),
     },
     safety: {
       requireApprovalForWrites: config.get<boolean>('safety.requireApprovalForWrites'),
@@ -105,6 +106,15 @@ export function readThunderConfigFromSettings(): ThunderConfig {
     telemetry: {
       sessionLogging: config.get<boolean>('telemetry.sessionLogging'),
       debugMetrics: config.get<boolean>('telemetry.debugMetrics'),
+    },
+    ui: {
+      showReasoning: config.get<boolean>('ui.showReasoning'),
+      reasoningPreviewMaxChars: config.get<number>('ui.reasoningPreviewMaxChars'),
+    },
+    enterprise: {
+      localProvidersOnly: config.get<boolean>('enterprise.localProvidersOnly'),
+      stripFileContentsFromAuditPacks: config.get<boolean>('enterprise.stripFileContentsFromAuditPacks'),
+      autoExportAuditPackOnSessionEnd: config.get<boolean>('enterprise.autoExportAuditPackOnSessionEnd'),
     },
   };
 

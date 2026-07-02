@@ -1,6 +1,6 @@
 import { AGENT_NAME } from '../../shared/brand';
 import * as vscode from 'vscode';
-import { basename, dirname, join, relative, resolve, isAbsolute } from 'path';
+import { basename, dirname, join, relative, resolve, isAbsolute, win32 } from 'path';
 import { existsSync, readdirSync, statSync } from 'fs';
 
 /**
@@ -9,6 +9,9 @@ import { existsSync, readdirSync, statSync } from 'fs';
 export function normalizeWorkspaceRoot(workspaceRoot: string | undefined | null): string | null {
   if (!workspaceRoot?.trim()) return null;
   const trimmed = workspaceRoot.trim();
+  if (isWindowsAbsolutePath(trimmed)) {
+    return win32.normalize(trimmed);
+  }
   const abs = resolve(isAbsolute(trimmed) ? trimmed : resolve(trimmed));
   if (!abs) return null;
   return abs;
@@ -87,6 +90,12 @@ export function resolveWorkspaceRelPath(
   if (!trimmed || trimmed === '.' || trimmed === './') return '';
 
   const normalized = trimmed.replace(/\\/g, '/');
+  if (isWindowsAbsolutePath(trimmed)) {
+    const relPath = win32.relative(win32.normalize(workspace), win32.normalize(trimmed));
+    if (!relPath || relPath === '.') return '';
+    if (relPath.startsWith('..') || isWindowsAbsolutePath(relPath)) return null;
+    return normalizeRelPath(relPath);
+  }
 
   if (isAbsolute(normalized)) {
     const relPath = relative(normalizedWorkspace, resolve(normalized)).replace(/\\/g, '/');
@@ -124,6 +133,10 @@ export function resolveWorkspaceRelPath(
   const relPath = normalizeRelPath(normalized);
   if (relPath.includes('..')) return null;
   return relPath;
+}
+
+function isWindowsAbsolutePath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
 }
 
 /** Common extension / naming variants when a path is missing. */

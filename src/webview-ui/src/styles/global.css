@@ -2153,6 +2153,37 @@ body,
   font-weight: 600;
 }
 
+.thinking-block[open] summary {
+  margin-bottom: 6px;
+}
+
+.thinking-block[open] summary::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: #60a5fa;
+  animation: thinkingPulse 1.2s ease-in-out infinite;
+}
+
+.thinking-block pre {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 /* ── History ── */
 .history-panel {
   display: flex;

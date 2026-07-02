@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="License: AGPL v3" src="https://img.shields.io/badge/License-AGPL_v3-blue.svg"></a>
   <a href="https://code.visualstudio.com/"><img alt="VS Code 1.85+" src="https://img.shields.io/badge/VS%20Code-1.85%2B-007ACC?logo=visualstudiocode"></a>
   <a href="https://nodejs.org/"><img alt="Node 20+" src="https://img.shields.io/badge/Node-20%2B-339933?logo=node.js"></a>
-  <img alt="Version 2.7.15" src="https://img.shields.io/badge/version-2.7.15-111111">
+  <img alt="Version 2.7.16" src="https://img.shields.io/badge/version-2.7.16-111111">
   <a href="https://mitii.dev"><img alt="Website" src="https://img.shields.io/badge/website-mitii.dev-000000"></a>
   <a href="https://docs.mitii.dev"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.mitii.dev-5B5BFF"></a>
 </p>
@@ -54,6 +54,7 @@ Most coding agents are powerful, but they often make one of these tradeoffs:
 | Tool limits | External tools are hard to connect or audit | Supports MCP servers while still routing tools through Mitii safety policy |
 | Repeated workflows | Teams paste the same instructions into every chat | Supports project rules and workspace skills through `SKILL.md` files |
 | Issue-to-fix handoff | Bug reports live in GitHub while the code lives in the editor | Detects GitHub issue URLs, fetches structured issue context, and routes Agent mode through the verified bugfix path |
+| Procurement evidence | Security reviewers need logs, approvals, and data-flow answers | Exports an audit pack zip and ships enterprise security/compliance docs |
 
 Mitii is not just a chat panel. It is a workspace-aware agent runtime for real engineering work.
 
@@ -73,6 +74,7 @@ The strongest thing Mitii provides is a practical balance: **deep local context 
 | GitHub issue ingestion | Paste a GitHub issue URL and Mitii turns title, body, labels, and comments into structured task context |
 | Built for long tasks | Auto-continue, persisted task state, context compaction, and session history reduce restart pain |
 | Model freedom | Use local models for privacy, cloud models for capability, or different models for Plan, Act, and research |
+| Diff-first micro-tasks | Commit messages, changelog entries, and release notes use minimal Git context instead of full agent routing |
 
 ---
 
@@ -202,6 +204,20 @@ Mitii stores useful state locally so every serious task does not start from zero
 
 Post-task memory extraction can capture useful observations after completed work, so future sessions can reuse decisions without asking you to repeat context.
 
+Audit review is available through `Mitii: Export Audit Pack`. The zip contains sanitized `session.jsonl`, `summary.md`, `manifest.json`, `tool-audit.json`, `approvals.json`, and `redaction-report.json`.
+
+### Release Automation
+
+Mitii includes release hygiene commands:
+
+| Command | Output |
+|---|---|
+| `Mitii: Generate Changelog Entry` | Preview a Keep a Changelog-style entry from Conventional Commits |
+| `Mitii: Prepare Release` | Update `CHANGELOG.md` and write `.mitii/release-notes.md` |
+| `mitii changelog` | Headless changelog entry for CI/scripts |
+| `mitii prepare-release` | Headless changelog + release-notes generation |
+| `mitii export-audit` | Headless audit pack export from JSONL logs |
+
 ### 7. Skills And Project Playbooks
 
 Mitii can load reusable workflow instructions from `SKILL.md` files. Bundled skills are copied into each workspace under `.mitii/skills/` on first init, and teams can add their own skills for code review, planning, debugging, testing, performance work, release flow, and cleanup.
@@ -243,6 +259,21 @@ The sidebar is a React webview with:
 | Token meter | Understand context usage |
 | Indexing status | Know when the workspace brain is ready |
 | Context warnings | See when context may be thin or over budget |
+
+Reasoning deltas from supported providers stream live in the chat UI. Use `thunder.ui.showReasoning` and `thunder.ui.reasoningPreviewMaxChars` to control visibility and inline preview size.
+
+## Enterprise Readiness
+
+Enterprise review materials live in [docs/enterprise](docs/enterprise/README.md). The pack covers data flow, provider boundaries, procurement FAQs, compliance mapping, Windows support, and auditability.
+
+| Control | Setting or command |
+|---|---|
+| Route narrow Git/release tasks through minimal context | `thunder.context.microTaskRoutingEnabled` |
+| Require local model providers | `thunder.enterprise.localProvidersOnly` |
+| Strip file contents from exported audit packs | `thunder.enterprise.stripFileContentsFromAuditPacks` |
+| Disable session logging | `thunder.telemetry.sessionLogging` |
+| Export audit evidence | `Mitii: Export Audit Pack` |
+| Windows smoke checklist | [docs/qa/WINDOWS_SMOKE.md](docs/qa/WINDOWS_SMOKE.md) |
 
 ---
 

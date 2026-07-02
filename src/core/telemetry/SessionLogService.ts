@@ -29,7 +29,9 @@ export type SessionLogEventType =
   | 'index_start'
   | 'index_complete'
   | 'turn_complete'
-  | 'ui_trace';
+  | 'ui_trace'
+  | 'microtask_context'
+  | 'audit_export';
 
 export interface SessionLogEvent {
   ts: number;

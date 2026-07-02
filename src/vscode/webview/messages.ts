@@ -272,6 +272,8 @@ export interface SettingsView {
   actModel: string;
   actBaseUrl: string;
   checkpointStrategy: 'file-copy' | 'git-stash' | 'shadow-git';
+  showReasoning: boolean;
+  reasoningPreviewMaxChars: number;
 }
 
 export interface McpServerStatusView {
@@ -458,6 +460,8 @@ export const defaultSettingsView = (): SettingsView => ({
   actModel: '',
   actBaseUrl: '',
   checkpointStrategy: 'git-stash',
+  showReasoning: true,
+  reasoningPreviewMaxChars: 8000,
 });
 
 export const initialWebviewState = (): WebviewState => ({

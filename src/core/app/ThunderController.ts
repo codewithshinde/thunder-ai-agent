@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AGENT_NAME, brandMessage } from '../../shared/brand';
-import { existsSync, statSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 import { ThunderSession } from '../session/ThunderSession';
 import { ConfigService } from '../config/ConfigService';
 import { LlmProviderRegistry } from '../llm/LlmProviderRegistry';
@@ -95,7 +95,10 @@ import { listCustomMcpServers } from '../mcp/mcpWorkspaceConfig';
 import { resolveDbPath } from '../indexing/paths';
 import { searchWorkspacePaths, resolvePickedPaths } from '../context/contextPathSearch';
 import { createWorkspacePattern, isWorkspaceInVscodeFolders, normalizeWorkspaceRoot, toWorkspaceRelPath } from '../util/paths';
-import { collectCommitMessageInput, generateCommitMessage, type CommitMessageResult } from '../scm';
+import type { CommitMessageResult } from '../scm';
+import { MicroTaskExecutor } from '../microtasks';
+import { AuditPackBuilder } from '../audit';
+import { GitHistoryCollector, generateChangelogEntry, generateReleaseNotes, insertChangelogEntry } from '../release';
 import {
   normalizeAgentSettings,
   normalizeProviderSettings,
@@ -662,6 +665,18 @@ export class ThunderController {
       ),
       githubIssueFetchEnabled: config.github.issueFetchEnabled,
       githubIssueCommentLimit: config.github.issueCommentLimit,
+      microTaskRoutingEnabled: config.context.microTaskRoutingEnabled,
+      microTaskExecutorFactory: (provider) => {
+        if (!ws || !this.gitService) {
+          throw new Error('Micro-task routing requires an initialized workspace and Git repository.');
+        }
+        return new MicroTaskExecutor({
+          workspace: ws,
+          git: this.gitService,
+          provider,
+          sessionLog: this.sessionLog,
+        });
+      },
     });
     orchestrator.setToolExecutor(this.toolExecutor);
     orchestrator.setContextPackCallback((pack, views, budget) => {
@@ -994,6 +1009,8 @@ export class ThunderController {
         actModel: config.agent.actModel,
         actBaseUrl: config.agent.actBaseUrl,
         checkpointStrategy: config.agent.checkpointStrategy,
+        showReasoning: config.ui.showReasoning,
+        reasoningPreviewMaxChars: config.ui.reasoningPreviewMaxChars,
       },
       contextToggles: this.contextToggles,
       mcpToggles: this.mcpToggles,
@@ -1179,11 +1196,19 @@ export class ThunderController {
       throw normalizeError(new Error('No Git repository found for this workspace.'));
     }
     const provider = this.trackProvider(await this.resolveProviderForMode('ask'));
-    const input = await collectCommitMessageInput(this.gitService);
-    if (!input.stagedDiff.trim() && input.unstagedDiff?.trim()) {
-      throw normalizeError(new Error('Only unstaged changes found. Stage files before generating a commit message.'));
-    }
-    return generateCommitMessage(input, provider);
+    const result = await new MicroTaskExecutor({
+      workspace: this.resolveWorkspacePath() ?? '',
+      git: this.gitService,
+      provider,
+      sessionLog: this.sessionLog,
+    }).execute('commit_message', 'generate commit message');
+    const [subject, ...rest] = result.content.split(/\r?\n/);
+    const body = rest.join('\n').trim() || undefined;
+    return {
+      subject: subject || 'chore: update workspace',
+      body,
+      fullMessage: body ? `${subject}\n\n${body}` : subject || 'chore: update workspace',
+    };
   }
 
   private async resolveProviderForMode(mode: string): Promise<LlmProvider> {
@@ -1193,6 +1218,11 @@ export class ThunderController {
     if (mode === 'plan') {
       const planModel = config.agent.planModel?.trim();
       if (planModel) {
+        enforceEnterpriseProviderPolicy(
+          config.enterprise.localProvidersOnly,
+          config.agent.planProviderType ?? config.provider.type,
+          config.agent.planBaseUrl?.trim() || config.provider.baseUrl
+        );
         return this.providerRegistry.resolveFromOptions({
           type: config.agent.planProviderType ?? config.provider.type,
           baseUrl: config.agent.planBaseUrl?.trim() || config.provider.baseUrl,
@@ -1208,6 +1238,11 @@ export class ThunderController {
     if (mode === 'agent') {
       const actModel = config.agent.actModel?.trim();
       if (actModel) {
+        enforceEnterpriseProviderPolicy(
+          config.enterprise.localProvidersOnly,
+          config.agent.actProviderType ?? config.provider.type,
+          config.agent.actBaseUrl?.trim() || config.provider.baseUrl
+        );
         return this.providerRegistry.resolveFromOptions({
           type: config.agent.actProviderType ?? config.provider.type,
           baseUrl: config.agent.actBaseUrl?.trim() || config.provider.baseUrl,
@@ -1224,6 +1259,7 @@ export class ThunderController {
     if (!active) {
       throw normalizeError(new Error('No LLM provider configured'));
     }
+    enforceEnterpriseProviderPolicy(config.enterprise.localProvidersOnly, config.provider.type, config.provider.baseUrl);
     return active;
   }
 
@@ -1758,6 +1794,100 @@ export class ThunderController {
     } else if (choice === 'Reveal in Finder') {
       await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(logPath));
     }
+  }
+
+  async exportAuditPack(): Promise<void> {
+    const workspace = this.resolveWorkspacePath();
+    if (!workspace) {
+      void vscode.window.showWarningMessage(brandMessage('Open a workspace before exporting an audit pack.'));
+      return;
+    }
+
+    const sessionId = this.session?.id ?? 'no-session';
+    const defaultUri = vscode.Uri.file(join(
+      workspace,
+      `.mitii/audit/mitii-audit-${sessionId}-${formatTimestampForFile(Date.now())}.zip`
+    ));
+    const target = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: { 'Zip archive': ['zip'] },
+      title: 'Export Mitii audit pack',
+    });
+    if (!target) return;
+
+    const config = this.configService.getConfig();
+    const pack = new AuditPackBuilder().build({
+      sessionId,
+      workspace,
+      extensionVersion: this.context.extension.packageJSON.version ?? '',
+      model: `${config.provider.type}/${config.provider.model}`,
+      logPath: this.sessionLog.getLogPath(),
+      summaryMarkdown: this.sessionLog.exportSummary(),
+      toolAudit: this.toolRuntime.getAuditLog(),
+      approvals: this.approvalQueue?.getPending() ?? [],
+      stripFileContents: config.enterprise.stripFileContentsFromAuditPacks,
+    });
+
+    mkdirSync(dirname(target.fsPath), { recursive: true });
+    await vscode.workspace.fs.writeFile(target, pack.buffer);
+    this.sessionLog.append('audit_export', 'Audit pack exported', {
+      path: target.fsPath,
+      entries: pack.entries,
+      redactionReport: pack.redactionReport,
+    });
+
+    const revealLabel = platformRevealLabel();
+    const choice = await vscode.window.showInformationMessage(
+      brandMessage(`Audit pack exported: ${target.fsPath}`),
+      revealLabel
+    );
+    if (choice === revealLabel) {
+      await vscode.commands.executeCommand('revealFileInOS', target);
+    }
+  }
+
+  async generateChangelog(): Promise<void> {
+    const workspace = this.resolveWorkspacePath();
+    if (!workspace) {
+      void vscode.window.showWarningMessage(brandMessage('Open a workspace before generating a changelog.'));
+      return;
+    }
+    const collector = new GitHistoryCollector(workspace);
+    const latestTag = await collector.getLatestTag();
+    const commits = await collector.getCommitsSinceTag(latestTag ?? undefined);
+    const entry = generateChangelogEntry({
+      commits,
+      version: readPackageVersion(workspace),
+      date: new Date(),
+    });
+    const doc = await vscode.workspace.openTextDocument({ content: entry, language: 'markdown' });
+    await vscode.window.showTextDocument(doc, { preview: false });
+  }
+
+  async prepareRelease(): Promise<void> {
+    const workspace = this.resolveWorkspacePath();
+    if (!workspace) {
+      void vscode.window.showWarningMessage(brandMessage('Open a workspace before preparing a release.'));
+      return;
+    }
+    const collector = new GitHistoryCollector(workspace);
+    const latestTag = await collector.getLatestTag();
+    const commits = await collector.getCommitsSinceTag(latestTag ?? undefined);
+    const version = readPackageVersion(workspace);
+    const date = new Date();
+    const entry = generateChangelogEntry({ commits, version, date });
+    const notes = generateReleaseNotes({ commits, version, date });
+    const changelogPath = join(workspace, 'CHANGELOG.md');
+    const existing = existsSync(changelogPath) ? readFileSync(changelogPath, 'utf8') : '# Changelog\n\n## [Unreleased]\n';
+    writeFileSync(changelogPath, insertChangelogEntry(existing, entry), 'utf8');
+    const notesPath = join(workspace, '.mitii', 'release-notes.md');
+    mkdirSync(dirname(notesPath), { recursive: true });
+    writeFileSync(notesPath, notes, 'utf8');
+    void vscode.window.showInformationMessage(
+      brandMessage(`Prepared release ${version}. Updated CHANGELOG.md and .mitii/release-notes.md.`)
+    );
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(notesPath));
+    await vscode.window.showTextDocument(doc, { preview: false });
   }
 
   async openSessionLog(): Promise<void> {
@@ -2378,4 +2508,37 @@ function normalizePromptBreakdown(
       color: '#38bdf8',
     },
   ];
+}
+
+function readPackageVersion(workspace: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(workspace, 'package.json'), 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+function formatTimestampForFile(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+}
+
+function platformRevealLabel(): string {
+  if (process.platform === 'darwin') return 'Reveal in Finder';
+  if (process.platform === 'win32') return 'Reveal in Explorer';
+  return 'Reveal in File Manager';
+}
+
+function enforceEnterpriseProviderPolicy(localOnly: boolean, providerType: string, baseUrl: string): void {
+  if (!localOnly) return;
+  const url = baseUrl.trim().toLowerCase();
+  const localUrl = /^(http:\/\/)?(localhost|127\.0\.0\.1|0\.0\.0\.0)(?::|\/|$)/.test(url) ||
+    url.startsWith('http://[::1]');
+  if (providerType === 'echo') return;
+  if (providerType === 'openai-compatible' && localUrl) return;
+  throw normalizeError(new Error(
+    'Enterprise local-providers-only policy is enabled. Choose Echo or a localhost OpenAI-compatible provider.'
+  ));
 }

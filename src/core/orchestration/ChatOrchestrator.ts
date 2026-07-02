@@ -70,6 +70,7 @@ import { estimateChatRequestTokens } from '../llm/UsageTrackingProvider';
 import { resolveMaxContextItems } from '../context/resolveMaxContextItems';
 import { enrichTask } from '../task';
 import type { GitHubIssueFetcher } from '../integrations/github';
+import { detectMicroTask, type MicroTaskExecutor } from '../microtasks';
 
 const log = createLogger('ChatOrchestrator');
 
@@ -110,6 +111,8 @@ export interface ChatOrchestratorDeps {
   githubTokenProvider?: () => Promise<string | undefined>;
   githubIssueFetchEnabled?: boolean;
   githubIssueCommentLimit?: number;
+  microTaskExecutorFactory?: (provider: LlmProvider) => MicroTaskExecutor;
+  microTaskRoutingEnabled?: boolean;
 }
 
 export class ChatOrchestrator {
@@ -233,6 +236,36 @@ export class ChatOrchestrator {
       messageLength: userMessage.length,
       auditMode: isAuditCleanupTask(userMessage),
     });
+
+    const microTaskId = this.deps.microTaskRoutingEnabled === false || isApprovalContinuationMessage(userMessage)
+      ? null
+      : detectMicroTask(userMessage);
+    if (microTaskId && this.deps.microTaskExecutorFactory) {
+      this.setLiveStatus('Running micro-task', microTaskId.replace(/_/g, ' '));
+      this.emitActivity('info', `Micro-task route: ${microTaskId}`, 'Using minimal Git/release context and no tools.');
+      sessionTiming.start('microtask');
+      const result = await this.deps.microTaskExecutorFactory(provider).execute(microTaskId, userMessage);
+      sessionTiming.end('microtask', sessionLog, result.metadata);
+      const content = result.content;
+      this.saveTurn(session.id, 'user', userMessage);
+      const emptyPack = emptyContextPack();
+      await this.finishTurn(
+        session,
+        provider,
+        userMessage,
+        content,
+        emptyPack,
+        [],
+        Math.ceil(content.length / 4),
+        [
+          { role: 'system', content: `Mitii micro-task: ${microTaskId}` },
+          { role: 'user', content: userMessage },
+        ]
+      );
+      yield content;
+      this.setLiveStatus(null);
+      return;
+    }
 
     const ws = this.deps.workspace ?? '';
     const editor = vscode.window.activeTextEditor;
@@ -1716,6 +1749,18 @@ function mergePromptContexts(...blocks: Array<string | undefined>): string | und
     .filter((block): block is string => Boolean(block));
   if (merged.length === 0) return undefined;
   return [...new Set(merged)].join('\n\n---\n\n');
+}
+
+function emptyContextPack(): ContextPack {
+  return {
+    items: [],
+    totalTokens: 0,
+    formatted: '',
+    retrievedCount: 0,
+    budgetLimit: 0,
+    dropped: [],
+    truncatedCount: 0,
+  };
 }
 
 export function contextPackToBudgetView(pack: ContextPack): ContextBudgetView {

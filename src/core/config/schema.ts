@@ -48,6 +48,18 @@ export const ContextConfigSchema = z.object({
   rerankerEnabled: z.boolean().default(true),
   rerankerCandidatePool: z.number().int().min(5).max(50).default(20),
   rerankerTopK: z.number().int().min(3).max(30).default(8),
+  microTaskRoutingEnabled: z.boolean().default(true),
+});
+
+export const UiConfigSchema = z.object({
+  showReasoning: z.boolean().default(true),
+  reasoningPreviewMaxChars: z.number().int().min(0).max(100_000).default(8000),
+});
+
+export const EnterpriseConfigSchema = z.object({
+  localProvidersOnly: z.boolean().default(false),
+  stripFileContentsFromAuditPacks: z.boolean().default(false),
+  autoExportAuditPackOnSessionEnd: z.boolean().default(false),
 });
 
 export const AgentDepthSchema = z.enum(['auto', 'quick', 'standard', 'deep', 'pilot', 'enterprise']);
@@ -169,6 +181,8 @@ export const ThunderConfigSchema = z.object({
   scm: ScmConfigSchema.default({}),
   github: GitHubConfigSchema.default({}),
   telemetry: TelemetryConfigSchema.default({}),
+  ui: UiConfigSchema.default({}),
+  enterprise: EnterpriseConfigSchema.default({}),
 });
 
 export type ProviderType = z.infer<typeof ProviderTypeSchema>;
@@ -177,6 +191,8 @@ export type EmbeddingProviderKind = z.infer<typeof EmbeddingProviderSchema>;
 export type VectorBackendKind = z.infer<typeof VectorBackendSchema>;
 export type IndexingConfig = z.infer<typeof IndexingConfigSchema>;
 export type ContextConfig = z.infer<typeof ContextConfigSchema>;
+export type UiConfig = z.infer<typeof UiConfigSchema>;
+export type EnterpriseConfig = z.infer<typeof EnterpriseConfigSchema>;
 export type SafetyConfig = z.infer<typeof SafetyConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
 export type AgentDepth = z.infer<typeof AgentDepthSchema>;
