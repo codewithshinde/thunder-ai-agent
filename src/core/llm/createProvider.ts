@@ -4,6 +4,7 @@ import { EchoProvider } from './EchoProvider';
 import { OpenAiCompatibleProvider } from './OpenAiCompatibleProvider';
 import { AnthropicProvider } from './AnthropicProvider';
 import { GeminiProvider } from './GeminiProvider';
+import { BedrockProvider } from './BedrockProvider';
 import { getProviderPreset } from './providerPresets';
 import { normalizeProviderModel } from './modelNormalize';
 import { createLogger } from '../telemetry/Logger';
@@ -14,6 +15,8 @@ export interface ProviderResolveOptions {
   type?: ProviderType;
   baseUrl?: string;
   model?: string;
+  apiVersion?: string;
+  region?: string;
   apiKey?: string;
   contextWindow?: number;
   supportsStreaming?: boolean;
@@ -34,6 +37,12 @@ export function createProvider(
   }
   const model = resolved.model;
   const key = apiKey;
+  const apiVersion = 'apiVersion' in config && config.apiVersion
+    ? config.apiVersion
+    : '2024-10-21';
+  const region = 'region' in config && config.region
+    ? config.region
+    : 'us-east-1';
   const capabilities = {
     contextWindow: config.contextWindow ?? preset?.contextWindow ?? 8192,
     supportsStreaming: config.supportsStreaming ?? true,
@@ -46,6 +55,40 @@ export function createProvider(
       return new AnthropicProvider({ baseUrl, model, apiKey: key, capabilities });
     case 'gemini':
       return new GeminiProvider({ baseUrl, model, apiKey: key, capabilities });
+    case 'openrouter':
+      return new OpenAiCompatibleProvider({
+        baseUrl,
+        model,
+        apiKey: key,
+        capabilities,
+        providerId: 'openrouter',
+        defaultHeaders: {
+          'HTTP-Referer': 'https://mitii.dev',
+          'X-Title': 'Mitii Agent',
+        },
+        includeReasoning: true,
+      });
+    case 'azure-openai':
+      return new OpenAiCompatibleProvider({
+        baseUrl,
+        model,
+        apiKey: key,
+        capabilities,
+        providerId: 'azure-openai',
+        authHeader: 'api-key',
+        chatCompletionsPath: `openai/deployments/${encodeURIComponent(model)}/chat/completions`,
+        queryParams: { 'api-version': apiVersion },
+      });
+    case 'bedrock':
+      return new BedrockProvider({
+        region,
+        model,
+        capabilities: {
+          ...capabilities,
+          supportsTools: false,
+          supportsEmbeddings: false,
+        },
+      });
     case 'openai':
     case 'deepseek':
     case 'cursor':

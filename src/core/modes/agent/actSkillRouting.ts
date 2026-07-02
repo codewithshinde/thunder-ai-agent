@@ -11,6 +11,14 @@ export function resolveActSkillNames(intent: ActIntent, taskAnalysis?: TaskAnaly
     names.push('audit-cleanup');
   }
 
+  if (/\b(console\.log|inline style|missing types?|type annotations?|eslint|lint|tech debt|code smells?)\b/i.test(taskAnalysis?.summary ?? '')) {
+    names.push('code-smells-and-tech-debt');
+  }
+
+  if (/\b(\.env|environment variable|missing keys?|secrets?|api keys?|tokens?)\b/i.test(taskAnalysis?.summary ?? '')) {
+    names.push('environment-and-secrets');
+  }
+
   if (
     intent === 'resume_plan' ||
     intent === 'bugfix' ||
@@ -77,4 +85,6 @@ ACT SKILLS:
 - Call use_skill to load a workspace playbook when the task needs a workflow that is not already injected.
 - For bug fixes and failed verification, use debugging-and-error-recovery.
 - For implementation and refactors, use test-driven-development when tests or verification strategy are unclear.
-- For cleanup tasks, use audit-cleanup and prefer repository audit scripts over manual grep.`;
+- For cleanup tasks, use audit-cleanup and prefer repository audit scripts over manual grep.
+- For console logs, inline styles, missing types, lint hygiene, or tech debt, use code-smells-and-tech-debt.
+- For .env files, environment variables, keys, tokens, or secrets, use environment-and-secrets and never print secret values.`;

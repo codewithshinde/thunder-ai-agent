@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.7.15",
+  "version": "2.7.16",
   "publisher": "mitii",
   "icon": "media/mitii-short-logo.png",
   "license": "AGPL-3.0-or-later",
@@ -146,7 +146,10 @@
           "type": "string",
           "enum": [
             "openai-compatible",
+            "openrouter",
             "openai",
+            "azure-openai",
+            "bedrock",
             "anthropic",
             "gemini",
             "deepseek",
@@ -166,6 +169,16 @@
           "type": "string",
           "default": "qwen3-coder:30b",
           "description": "Model name"
+        },
+        "thunder.provider.apiVersion": {
+          "type": "string",
+          "default": "2024-10-21",
+          "description": "Provider API version. Used by Azure OpenAI when building deployment chat completion URLs."
+        },
+        "thunder.provider.region": {
+          "type": "string",
+          "default": "us-east-1",
+          "description": "Cloud provider region. Used by AWS Bedrock."
         },
         "thunder.provider.contextWindow": {
           "type": "number",
@@ -518,6 +531,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "npm run compile:extension && npm run compile:webview",
+    "setup": "bash scripts/dev-setup.sh",
+    "setup:cursor": "THUNDER_EDITOR=cursor bash scripts/dev-setup.sh",
     "rebuild:native": "node scripts/rebuild-native.mjs",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:all": "npm run rebuild:native && npm run rebuild:node",
@@ -579,6 +594,7 @@
     "vitest": "^1.6.0"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1078.0",
     "@lancedb/lancedb": "^0.30.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@vscode/ripgrep": "^1.15.9",

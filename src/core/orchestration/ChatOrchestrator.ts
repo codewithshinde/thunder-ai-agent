@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
 import type { ThunderDb } from '../indexing/ThunderDb';
-import type { LlmProvider, ChatMessage } from '../llm/types';
+import type { AssistantStreamChunk, LlmProvider, ChatMessage } from '../llm/types';
+import { chunkContent, toAssistantStreamChunk } from '../llm/streamChunks';
 import type { ThunderSession } from '../session/ThunderSession';
 import type { ContextItem, ContextPack } from '../context/types';
 import type {
@@ -216,7 +217,7 @@ export class ChatOrchestrator {
     userMessage: string,
     recentMessages: ChatMessage[] = [],
     options?: { pinnedContext?: PinnedContextEntry[] }
-  ): AsyncIterable<string> {
+  ): AsyncIterable<AssistantStreamChunk> {
     this.abortController = new AbortController();
     const signal = this.abortController.signal;
     const sessionLog = this.deps.sessionLog;
@@ -615,7 +616,7 @@ export class ChatOrchestrator {
           sharedPlanOptions
         )) {
           if (signal.aborted) break;
-          fullResponse += chunk;
+          fullResponse += chunkContent(chunk);
           yield chunk;
         }
         sessionTiming.end('plan_execution', sessionLog, { resumed: true, stepCount: plan.steps.length });
@@ -773,7 +774,7 @@ export class ChatOrchestrator {
         )) {
           if (signal.aborted) break;
           if (session.mode !== 'plan') {
-            fullResponse += chunk;
+            fullResponse += chunkContent(chunk);
             yield chunk;
           }
         }
@@ -853,7 +854,7 @@ export class ChatOrchestrator {
               sharedPlanOptions
             )) {
               if (signal.aborted) break;
-              fullResponse += chunk;
+              fullResponse += chunkContent(chunk);
               yield chunk;
             }
             sessionTiming.end('plan_execution', sessionLog, {
@@ -974,7 +975,7 @@ export class ChatOrchestrator {
           }
         )) {
           if (signal.aborted) break;
-          fullResponse += chunk;
+          fullResponse += chunkContent(chunk);
           emitLiveTokenUsage();
           yield chunk;
         }
@@ -1051,7 +1052,7 @@ export class ChatOrchestrator {
               }
             )) {
               if (signal.aborted) break;
-              fullResponse += chunk;
+              fullResponse += chunkContent(chunk);
               emitLiveTokenUsage();
               yield chunk;
             }
@@ -1065,8 +1066,9 @@ export class ChatOrchestrator {
           if (delta.content) {
             fullResponse += delta.content;
             emitLiveTokenUsage();
-            yield delta.content;
           }
+          const chunk = toAssistantStreamChunk(delta.content, delta.reasoning);
+          if (chunk) yield chunk;
           if (delta.error) throw new Error(delta.error);
         }
       }
@@ -1324,7 +1326,7 @@ export class ChatOrchestrator {
     return Boolean(this.agentLoop?.getSuspendState() && this.suspendContext);
   }
 
-  async *resumeAfterApproval(approved: ApprovedToolResult[]): AsyncIterable<string> {
+  async *resumeAfterApproval(approved: ApprovedToolResult[]): AsyncIterable<AssistantStreamChunk> {
     if (!this.agentLoop || !this.suspendContext || approved.length === 0) return;
 
     const baseState = this.agentLoop.getSuspendState();
@@ -1377,7 +1379,7 @@ export class ChatOrchestrator {
         sharedLoopCallbacks
       )) {
         if (signal.aborted) break;
-        fullResponse += chunk;
+        fullResponse += chunkContent(chunk);
         yield chunk;
       }
 

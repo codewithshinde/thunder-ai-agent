@@ -160,7 +160,7 @@ For a complete feature, the typical skill sequence is:
 16. shipping-and-launch         → Deploy safely
 ```
 
-Not every task needs every skill. A bug fix might only need: `debugging-and-error-recovery` → `test-driven-development` → `code-review-and-quality`.
+Not every task needs every skill. A bug fix might only need: `debugging-and-error-recovery` → `test-driven-development` → `code-review-and-quality`. A cleanup task might need: `audit-cleanup` → `code-smells-and-tech-debt` → `git-workflow-and-versioning`.
 
 ## Quick Reference
 
@@ -179,9 +179,12 @@ Not every task needs every skill. A bug fix might only need: `debugging-and-erro
 | Verify | test-driven-development | Failing test first, then make it pass |
 | Verify | browser-testing-with-devtools | Chrome DevTools MCP for runtime verification |
 | Verify | debugging-and-error-recovery | Reproduce → localize → fix → guard |
+| Verify | audit-cleanup | Script-first dependency, dead-code, cycle, and engines audit |
+| Verify | code-smells-and-tech-debt | Console logs, inline styles, missing types, and targeted lint cleanup |
 | Review | code-review-and-quality | Five-axis review with quality gates |
 | Review | code-simplification | Preserve behavior while reducing unnecessary complexity |
 | Review | security-and-hardening | OWASP prevention, input validation, least privilege |
+| Review | environment-and-secrets | Env/template drift and secret handling without exposing values |
 | Review | performance-optimization | Measure first, optimize only what matters |
 | Ship | git-workflow-and-versioning | Atomic commits, clean history |
 | Ship | ci-cd-and-automation | Automated quality gates on every change |

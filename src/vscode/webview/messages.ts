@@ -31,6 +31,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  reasoningContent?: string;
   timestamp: number;
   streaming?: boolean;
 }
@@ -226,6 +227,8 @@ export interface SettingsView {
   providerType: string;
   baseUrl: string;
   model: string;
+  apiVersion: string;
+  region: string;
   contextWindow: number;
   indexingEnabled: boolean;
   approvalMode: ApprovalMode;
@@ -335,7 +338,7 @@ export type WorkspaceNoticeView = {
 export type ExtensionToWebviewMessage =
   | { type: 'state'; payload: WebviewState }
   | { type: 'appendMessage'; payload: ChatMessage }
-  | { type: 'updateLastAssistant'; payload: { content: string; streaming: boolean } }
+  | { type: 'updateLastAssistant'; payload: { content: string; reasoningContent?: string; streaming: boolean } }
   | { type: 'setError'; payload: string | null }
   | { type: 'setLoading'; payload: boolean }
   | { type: 'setMode'; payload: ThunderMode }
@@ -412,6 +415,8 @@ export const defaultSettingsView = (): SettingsView => ({
   providerType: 'echo',
   baseUrl: 'http://localhost:11434/v1',
   model: 'qwen3-coder:30b',
+  apiVersion: '2024-10-21',
+  region: 'us-east-1',
   contextWindow: 8192,
   indexingEnabled: true,
   approvalMode: 'review_all',

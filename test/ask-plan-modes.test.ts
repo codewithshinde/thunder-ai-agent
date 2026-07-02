@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { chunkContent } from '../src/core/llm/streamChunks';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -123,7 +124,7 @@ describe('Ask and Plan mode reliability', () => {
       undefined,
       { askMode: true, requiresAskGrounding: true, maxSteps: 1, maxAutoContinues: 0 }
     )) {
-      chunks.push(chunk);
+      chunks.push(chunkContent(chunk));
     }
 
     expect(chunks.join('')).toContain('JWT');
@@ -179,7 +180,7 @@ describe('Ask and Plan mode reliability', () => {
       undefined,
       { planMode: true, requiresPlanGrounding: true, maxSteps: 3 }
     )) {
-      chunks.push(chunk);
+      chunks.push(chunkContent(chunk));
     }
 
     expect(seen.some((text) => text.includes('Plan mode MUST be grounded'))).toBe(true);

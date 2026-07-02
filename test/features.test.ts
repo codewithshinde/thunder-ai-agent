@@ -15,6 +15,9 @@ describe('providerPresets', () => {
     const types = PROVIDER_PRESETS.map((p) => p.type);
     expect(types).toEqual(expect.arrayContaining([
       'openai',
+      'openrouter',
+      'azure-openai',
+      'bedrock',
       'anthropic',
       'gemini',
       'deepseek',
@@ -25,6 +28,9 @@ describe('providerPresets', () => {
 
   it('resolves preset by type', () => {
     expect(getProviderPreset('anthropic')?.model).toContain('claude');
+    expect(getProviderPreset('openrouter')?.baseUrl).toContain('openrouter');
+    expect(getProviderPreset('azure-openai')?.model).toContain('deployment');
+    expect(getProviderPreset('bedrock')?.model).toContain('anthropic.claude');
     expect(getProviderPreset('gemini')?.baseUrl).toContain('generativelanguage');
   });
 
@@ -73,6 +79,38 @@ describe('createProvider', () => {
       model: 'deepseek-chat',
     });
     expect(provider.id).toBe('openai-compatible');
+  });
+
+  it('creates native OpenRouter provider with provider-specific id', () => {
+    const provider = createProvider({
+      ...defaultThunderConfig().provider,
+      type: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'anthropic/claude-sonnet-4',
+    }, 'test-key');
+    expect(provider.id).toBe('openrouter');
+  });
+
+  it('creates Azure OpenAI provider with provider-specific id', () => {
+    const provider = createProvider({
+      ...defaultThunderConfig().provider,
+      type: 'azure-openai',
+      baseUrl: 'https://example.openai.azure.com',
+      model: 'my-deployment',
+      apiVersion: '2024-10-21',
+    }, 'test-key');
+    expect(provider.id).toBe('azure-openai');
+  });
+
+  it('creates AWS Bedrock provider with tool support disabled', () => {
+    const provider = createProvider({
+      ...defaultThunderConfig().provider,
+      type: 'bedrock',
+      region: 'us-east-1',
+      model: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+    });
+    expect(provider.id).toBe('bedrock');
+    expect(provider.capabilities.supportsTools).toBe(false);
   });
 });
 
@@ -153,6 +191,42 @@ describe('OpenAiCompatibleProvider', () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe('devstral-small-2:24b');
     expect(body.model).not.toBe('qwen3.6:27b');
+  });
+
+  it('passes custom headers and reasoning options for native providers', async () => {
+    const provider = new OpenAiCompatibleProvider({
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'anthropic/claude-sonnet-4',
+      apiKey: 'test-key',
+      providerId: 'openrouter',
+      defaultHeaders: { 'HTTP-Referer': 'https://mitii.dev', 'X-Title': 'Mitii Agent' },
+      includeReasoning: true,
+      capabilities: { supportsTools: true },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok', reasoning: 'thinking' }, finish_reason: 'stop' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const deltas = [];
+    try {
+      for await (const delta of provider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      })) {
+        deltas.push(delta);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const init = fetchMock.mock.calls[0][1];
+    const body = JSON.parse(init.body);
+    expect(init.headers['HTTP-Referer']).toBe('https://mitii.dev');
+    expect(init.headers.Authorization).toBe('Bearer test-key');
+    expect(body.include_reasoning).toBe(true);
+    expect(deltas.some((delta) => delta.reasoning === 'thinking')).toBe(true);
   });
 
   it('omits tool definitions when the configured model does not support tools', async () => {

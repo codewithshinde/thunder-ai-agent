@@ -12,7 +12,7 @@
   <a href="LICENSE"><img alt="License: AGPL v3" src="https://img.shields.io/badge/License-AGPL_v3-blue.svg"></a>
   <a href="https://code.visualstudio.com/"><img alt="VS Code 1.85+" src="https://img.shields.io/badge/VS%20Code-1.85%2B-007ACC?logo=visualstudiocode"></a>
   <a href="https://nodejs.org/"><img alt="Node 20+" src="https://img.shields.io/badge/Node-20%2B-339933?logo=node.js"></a>
-  <img alt="Version 2.7.7" src="https://img.shields.io/badge/version-2.7.7-111111">
+  <img alt="Version 2.7.15" src="https://img.shields.io/badge/version-2.7.15-111111">
   <a href="https://mitii.dev"><img alt="Website" src="https://img.shields.io/badge/website-mitii.dev-000000"></a>
   <a href="https://docs.mitii.dev"><img alt="Docs" src="https://img.shields.io/badge/docs-docs.mitii.dev-5B5BFF"></a>
 </p>
@@ -31,7 +31,7 @@
 
 Mitii is built for developers who want an AI agent that understands the repo before changing it. It runs inside VS Code, indexes your workspace locally, plans work before execution, asks for approval when risk is involved, and keeps a useful trail of memory, checkpoints, logs, and task plans.
 
-Use it with Ollama, LM Studio, OpenAI-compatible endpoints, OpenAI, Anthropic, Gemini, DeepSeek, Cursor-compatible APIs, Codex-compatible APIs, or the Echo provider for UI testing.
+Use it with Ollama, LM Studio, OpenAI-compatible endpoints, native OpenRouter, Azure OpenAI, AWS Bedrock, OpenAI, Anthropic, Gemini, DeepSeek, Cursor-compatible APIs, Codex-compatible APIs, or the Echo provider for UI testing.
 
 **Docs:** [docs.mitii.dev](https://docs.mitii.dev)  
 **Website:** [mitii.dev](https://mitii.dev)  
@@ -323,6 +323,7 @@ This section is written carefully. Models and products change fast. Mitii does n
 | Long-running tasks | Auto-continue, task-state persistence, session history, and wake-up checkpoints |
 | Teams that need guardrails | Approval modes, autonomy presets, untrusted workspace blocking, dangerous-command blocking |
 | Local model setups | Ollama and OpenAI-compatible providers are first-class |
+| Cloud routing | Native OpenRouter headers/reasoning, Azure OpenAI deployment URLs, and AWS Bedrock Converse support are built in |
 | Custom internal tools | MCP support without skipping Mitii's policy layer |
 | VS Code users | No need to move to a separate AI editor |
 
@@ -367,18 +368,17 @@ This is why Mitii focuses on visible plans, local logs, checkpoints, and verific
 | npm | 9+ |
 
 ```bash
-git clone https://github.com/codewithshinde/thunder-ai-agent.git
-cd thunder-ai-agent
-npm install
-npm run compile
+git clone https://github.com/codewithshinde/mitii-ai-agent.git
+cd mitii-ai-agent
+npm run setup
 ```
 
-Press **F5** in VS Code to launch the Extension Development Host. Open a folder, wait for the indexing status in the Mitii sidebar, then start chatting.
+`npm run setup` installs dependencies, compiles the extension and webview, rebuilds native modules for VS Code on macOS, and rebuilds local Node native modules for tests. Press **F5** in VS Code to launch the Extension Development Host. Open a folder, wait for the indexing status in the Mitii sidebar, then start chatting.
 
 ### Connect A Model
 
 1. Open **Settings** in the Mitii sidebar, or VS Code settings under `Mitii AI Agent`.
-2. Set `thunder.provider.type` to `openai-compatible`.
+2. Set `thunder.provider.type` to `openai-compatible`, `openrouter`, `azure-openai`, or another supported provider.
 3. Point `thunder.provider.baseUrl` at your endpoint. The default is `http://localhost:11434/v1` for Ollama.
 4. Set `thunder.provider.model`. The default is `qwen3-coder:30b`.
 
@@ -389,7 +389,10 @@ Use the Echo provider for UI testing without an LLM. API keys are stored through
 | Provider | Default model | Notes |
 |---|---|---|
 | OpenAI-compatible | `qwen3-coder:30b` | Ollama, LM Studio, vLLM, local gateways |
+| OpenRouter | `anthropic/claude-sonnet-4` | Native headers and reasoning deltas |
 | OpenAI | `gpt-4.1` | API key required |
+| Azure OpenAI | `your-deployment-name` | API key required; model field is the deployment name; uses `thunder.provider.apiVersion` |
+| AWS Bedrock | `anthropic.claude-3-5-sonnet-20240620-v1:0` | Uses AWS default credential chain and `thunder.provider.region`; tool calls disabled by default |
 | Anthropic | `claude-sonnet-4-20250514` | API key required |
 | Gemini | `gemini-2.0-flash` | API key required |
 | DeepSeek | `deepseek-chat` | API key required |
@@ -422,6 +425,8 @@ Use the Echo provider for UI testing without an LLM. API keys are stored through
   "thunder.provider.type": "openai-compatible",
   "thunder.provider.baseUrl": "http://localhost:11434/v1",
   "thunder.provider.model": "qwen3-coder:30b",
+  "thunder.provider.apiVersion": "2024-10-21",
+  "thunder.provider.region": "us-east-1",
   "thunder.provider.contextWindow": 8192,
   "thunder.safety.autonomyPreset": "guided",
   "thunder.safety.approvalMode": "review_all",
@@ -511,6 +516,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, project layout, testing, and p
 
 ```bash
 npm run watch              # extension + webview hot rebuild
+npm run setup              # one-click local dev setup
+npm run setup:cursor       # setup using Cursor Electron runtime on macOS
 npm run test               # unit tests
 npm run lint               # typecheck
 npm run smoke              # smoke tests
@@ -529,6 +536,14 @@ VS Code and Cursor ship their own Electron runtime, so native modules may need a
 | Local Vitest runs | `npm run rebuild:node` |
 | Everything | `npm run rebuild:all` |
 
+On Linux and Windows, Electron version auto-detection is not available. Set the version explicitly:
+
+```bash
+THUNDER_ELECTRON_VERSION=<electron-version> npm run rebuild:native
+```
+
+For example, use the Electron version shipped by your VS Code or Cursor build.
+
 ### Useful Audit Scripts
 
 ```bash
@@ -538,7 +553,11 @@ npm run check:circular-deps
 npm run audit:engines
 npm run find:console
 npm run find:inline-styles
+npm run check:missing-types
+npm run env:sync
 ```
+
+Bundled skills orchestrate these scripts instead of replacing them. `audit-cleanup` runs dependency/dead-code/cycle/engine audits, `code-smells-and-tech-debt` covers console logs, inline styles, missing types, and targeted lint checks, and `environment-and-secrets` compares env templates without exposing secret values.
 
 ---
 

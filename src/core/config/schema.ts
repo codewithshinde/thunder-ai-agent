@@ -2,7 +2,10 @@ import { z } from 'zod';
 
 export const ProviderTypeSchema = z.enum([
   'openai-compatible',
+  'openrouter',
   'openai',
+  'azure-openai',
+  'bedrock',
   'anthropic',
   'gemini',
   'deepseek',
@@ -15,6 +18,8 @@ export const ProviderConfigSchema = z.object({
   type: ProviderTypeSchema.default('echo'),
   baseUrl: z.string().url().default('http://localhost:11434/v1'),
   model: z.string().default('qwen3-coder:30b'),
+  apiVersion: z.string().default('2024-10-21'),
+  region: z.string().default('us-east-1'),
   apiKeyRef: z.string().default('thunder.apiKey'),
   contextWindow: z.number().int().positive().default(8192),
   supportsStreaming: z.boolean().default(true),

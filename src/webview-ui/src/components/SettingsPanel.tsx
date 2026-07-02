@@ -44,7 +44,10 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
 const PROVIDER_OPTIONS: Array<{ id: ProviderSettingsPayload['providerType']; label: string }> = [
   { id: 'echo', label: 'Echo (test / no LLM)' },
   { id: 'openai-compatible', label: 'OpenAI-compatible (Ollama, LM Studio)' },
+  { id: 'openrouter', label: 'OpenRouter' },
   { id: 'openai', label: 'OpenAI' },
+  { id: 'azure-openai', label: 'Azure OpenAI' },
+  { id: 'bedrock', label: 'AWS Bedrock' },
   { id: 'anthropic', label: 'Anthropic (Claude)' },
   { id: 'gemini', label: 'Google Gemini' },
   { id: 'deepseek', label: 'DeepSeek' },
@@ -221,6 +224,8 @@ export function SettingsPanel({
   );
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
   const [model, setModel] = useState(settings.model);
+  const [apiVersion, setApiVersion] = useState(settings.apiVersion);
+  const [region, setRegion] = useState(settings.region);
   const [contextWindow, setContextWindow] = useState(settings.contextWindow);
 
   const [subagentsEnabled, setSubagentsEnabled] = useState(settings.subagentsEnabled);
@@ -257,6 +262,8 @@ export function SettingsPanel({
     setProviderType(settings.providerType as ProviderSettingsPayload['providerType']);
     setBaseUrl(settings.baseUrl);
     setModel(settings.model);
+    setApiVersion(settings.apiVersion);
+    setRegion(settings.region);
     setContextWindow(settings.contextWindow);
     setSubagentsEnabled(settings.subagentsEnabled);
     setAgentMaxSteps(settings.agentMaxSteps);
@@ -309,6 +316,8 @@ export function SettingsPanel({
         providerType,
         baseUrl: baseUrl.trim(),
         model: model.trim(),
+        apiVersion: apiVersion.trim(),
+        region: region.trim(),
         contextWindow: normalizedContextWindow,
       },
       agent: {
@@ -366,6 +375,8 @@ export function SettingsPanel({
     providerType,
     baseUrl: baseUrl.trim(),
     model: model.trim(),
+    apiVersion: apiVersion.trim(),
+    region: region.trim(),
     contextWindow: clampContextWindow(contextWindow),
   });
 
@@ -469,6 +480,8 @@ export function SettingsPanel({
                     if (preset) {
                       setBaseUrl(preset.baseUrl);
                       setModel(preset.model);
+                      setApiVersion(next === 'azure-openai' ? '2024-10-21' : apiVersion);
+                      setRegion(next === 'bedrock' ? 'us-east-1' : region);
                       setContextWindow(preset.contextWindow);
                     }
                     markDirty();
@@ -519,9 +532,47 @@ export function SettingsPanel({
                       ))}
                     </datalist>
                     <span className="settings-hint">
-                      Pick a local Ollama model or type any OpenAI-compatible model name.
+                      Pick a local Ollama model, cloud model ID, or Azure deployment name.
                     </span>
                   </label>
+
+                  {providerType === 'azure-openai' && (
+                    <label className="settings-field">
+                      <span className="settings-label">Azure API version</span>
+                      <input
+                        type="text"
+                        className="settings-input"
+                        value={apiVersion}
+                        onChange={(e) => {
+                          setApiVersion(e.target.value);
+                          markDirty();
+                        }}
+                        placeholder="2024-10-21"
+                      />
+                      <span className="settings-hint">
+                        The model field is your Azure deployment name.
+                      </span>
+                    </label>
+                  )}
+
+                  {providerType === 'bedrock' && (
+                    <label className="settings-field">
+                      <span className="settings-label">AWS region</span>
+                      <input
+                        type="text"
+                        className="settings-input"
+                        value={region}
+                        onChange={(e) => {
+                          setRegion(e.target.value);
+                          markDirty();
+                        }}
+                        placeholder="us-east-1"
+                      />
+                      <span className="settings-hint">
+                        Uses AWS default credentials from your environment, profile, SSO, or instance role.
+                      </span>
+                    </label>
+                  )}
 
                   {contextWindowField}
                   {hasPresetContextMismatch && activeLocalPreset?.contextWindow && (

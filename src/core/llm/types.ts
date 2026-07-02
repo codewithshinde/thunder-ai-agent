@@ -20,6 +20,8 @@ export interface ChatRequest {
   stream?: boolean;
   tools?: ToolDefinition[];
   toolChoice?: 'auto' | 'none' | 'required';
+  reasoningEffort?: 'low' | 'medium' | 'high';
+  includeReasoning?: boolean;
 }
 
 export interface ToolCallDelta {
@@ -33,11 +35,19 @@ export interface ToolCallDelta {
 
 export interface ChatDelta {
   content?: string;
+  reasoning?: string;
   done?: boolean;
   error?: string;
   tool_calls?: ToolCallDelta[];
   finish_reason?: string;
 }
+
+export interface AssistantStreamDelta {
+  content?: string;
+  reasoning?: string;
+}
+
+export type AssistantStreamChunk = string | AssistantStreamDelta;
 
 export interface ModelCapabilities {
   contextWindow: number;

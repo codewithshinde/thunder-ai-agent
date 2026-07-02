@@ -33,6 +33,9 @@ export async function* parseSseStream(
             choices?: Array<{
               delta?: {
                 content?: string;
+                reasoning?: string;
+                reasoning_content?: string;
+                redacted_reasoning?: string;
                 tool_calls?: Array<{
                   index: number;
                   id?: string;
@@ -55,6 +58,9 @@ export async function* parseSseStream(
           if (delta?.content) {
             out.content = delta.content;
           }
+          if (delta?.reasoning || delta?.reasoning_content || delta?.redacted_reasoning) {
+            out.reasoning = delta.reasoning ?? delta.reasoning_content ?? delta.redacted_reasoning;
+          }
           if (delta?.tool_calls) {
             out.tool_calls = delta.tool_calls;
           }
@@ -63,7 +69,7 @@ export async function* parseSseStream(
             out.done = true;
           }
 
-          if (out.content || out.tool_calls || out.done) {
+          if (out.content || out.reasoning || out.tool_calls || out.done) {
             yield out;
           }
         } catch (e) {

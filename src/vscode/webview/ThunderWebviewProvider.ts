@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ThunderController } from '../../core/app/ThunderController';
 import { createLogger } from '../../core/telemetry/Logger';
 import { normalizeError, formatUserError } from '../../core/telemetry/errors';
+import { chunkContent, chunkReasoning } from '../../core/llm/streamChunks';
 import { AGENT_FULL_NAME, AGENT_NAME, brandMessage } from '../../shared/brand';
 import {
   type ExtensionToWebviewMessage,
@@ -474,6 +475,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
       const stream = await this.controller.sendMessage(content, recentMessages, { pinnedContext });
       let rawContent = '';
       let fullContent = '';
+      let reasoningContent = '';
 
       this.state = {
         ...this.state,
@@ -485,17 +487,18 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'state', payload: this.state });
 
       for await (const chunk of stream) {
-        rawContent += chunk;
+        rawContent += chunkContent(chunk);
+        reasoningContent += chunkReasoning(chunk);
         fullContent = stripLeakedChannelMarkers(rawContent);
         this.state = {
           ...this.state,
           messages: this.state.messages.map((m) =>
-            m.id === assistantId ? { ...m, content: fullContent, streaming: true } : m
+            m.id === assistantId ? { ...m, content: fullContent, reasoningContent, streaming: true } : m
           ),
         };
         this.postMessage({
           type: 'updateLastAssistant',
-          payload: { content: fullContent, streaming: true },
+          payload: { content: fullContent, reasoningContent, streaming: true },
         });
       }
 
@@ -505,7 +508,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         ...this.state,
         loading: false,
         messages: this.state.messages.map((m) =>
-          m.id === assistantId ? { ...m, content: fullContent, streaming: false } : m
+          m.id === assistantId ? { ...m, content: fullContent, reasoningContent, streaming: false } : m
         ),
         approvals: pendingApprovals.map((r) => ({
           id: r.id,
@@ -599,21 +602,23 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
     const assistantId = lastAssistant.id;
     let rawContent = lastAssistant.content;
     let fullContent = stripLeakedChannelMarkers(rawContent);
+    let reasoningContent = lastAssistant.reasoningContent ?? '';
 
     try {
       const stream = this.controller.resumeAfterApproval();
       for await (const chunk of stream) {
-        rawContent += chunk;
+        rawContent += chunkContent(chunk);
+        reasoningContent += chunkReasoning(chunk);
         fullContent = stripLeakedChannelMarkers(rawContent);
         this.state = {
           ...this.state,
           messages: this.state.messages.map((m) =>
-            m.id === assistantId ? { ...m, content: fullContent, streaming: true } : m
+            m.id === assistantId ? { ...m, content: fullContent, reasoningContent, streaming: true } : m
           ),
         };
         this.postMessage({
           type: 'updateLastAssistant',
-          payload: { content: fullContent, streaming: true },
+          payload: { content: fullContent, reasoningContent, streaming: true },
         });
       }
 
@@ -623,7 +628,7 @@ export class ThunderWebviewProvider implements vscode.WebviewViewProvider {
         ...this.state,
         loading: false,
         messages: this.state.messages.map((m) =>
-          m.id === assistantId ? { ...m, content: fullContent, streaming: false } : m
+          m.id === assistantId ? { ...m, content: fullContent, reasoningContent, streaming: false } : m
         ),
         approvals: pendingApprovals.map((r) => ({
           id: r.id,

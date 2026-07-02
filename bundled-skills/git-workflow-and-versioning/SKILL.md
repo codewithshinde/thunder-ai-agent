@@ -210,6 +210,18 @@ This pattern catches wrong assumptions early and gives reviewers a clear map of 
 
 ## Pre-Commit Hygiene
 
+When Mitii workspace scripts are available, run the safety helpers before commit-sensitive work:
+
+```bash
+npm run git:untracked
+npm run checkpoint:write
+npm run checkpoint:read
+```
+
+- `list-untracked-files.sh` before committing so new files are intentionally included or ignored.
+- `write-checkpoint.sh` before an approval pause or risky edit batch.
+- `read-checkpoint.sh` on resume so the next step starts from the saved state rather than stale memory.
+
 Before every commit:
 
 ```bash

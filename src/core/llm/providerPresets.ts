@@ -7,7 +7,7 @@ export interface ProviderPreset {
   model: string;
   contextWindow: number;
   requiresApiKey: boolean;
-  apiKeyHeader?: 'authorization' | 'x-api-key' | 'query';
+  apiKeyHeader?: 'authorization' | 'api-key' | 'x-api-key' | 'query';
 }
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
@@ -20,12 +20,37 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     requiresApiKey: false,
   },
   {
+    type: 'openrouter',
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'anthropic/claude-sonnet-4',
+    contextWindow: 200_000,
+    requiresApiKey: true,
+  },
+  {
     type: 'openai',
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-4.1',
     contextWindow: 128_000,
     requiresApiKey: true,
+  },
+  {
+    type: 'azure-openai',
+    label: 'Azure OpenAI',
+    baseUrl: 'https://your-resource.openai.azure.com',
+    model: 'your-deployment-name',
+    contextWindow: 128_000,
+    requiresApiKey: true,
+    apiKeyHeader: 'api-key',
+  },
+  {
+    type: 'bedrock',
+    label: 'AWS Bedrock',
+    baseUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+    model: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+    contextWindow: 200_000,
+    requiresApiKey: false,
   },
   {
     type: 'anthropic',

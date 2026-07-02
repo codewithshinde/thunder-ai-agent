@@ -23,7 +23,7 @@ export function normalizeProviderSettings(
   previousContextWindow: number
 ): ProviderSettingsPayload {
   const model = settings.model.trim();
-  return {
+  const normalized: ProviderSettingsPayload = {
     providerType: settings.providerType,
     baseUrl: settings.baseUrl.trim(),
     model,
@@ -34,6 +34,13 @@ export function normalizeProviderSettings(
       previousContextWindow
     ),
   };
+  if (settings.apiVersion !== undefined) {
+    normalized.apiVersion = settings.apiVersion.trim();
+  }
+  if (settings.region !== undefined) {
+    normalized.region = settings.region.trim();
+  }
+  return normalized;
 }
 
 export function normalizeAgentSettings(settings: AgentSettingsPayload): AgentSettingsPayload {

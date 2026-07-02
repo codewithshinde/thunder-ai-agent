@@ -14,6 +14,8 @@ export function readThunderConfigFromSettings(): ThunderConfig {
       type: config.get<string>('provider.type'),
       baseUrl: config.get<string>('provider.baseUrl'),
       model: config.get<string>('provider.model'),
+      apiVersion: config.get<string>('provider.apiVersion'),
+      region: config.get<string>('provider.region'),
       apiKeyRef: config.get<string>('provider.apiKeyRef'),
       contextWindow: config.get<number>('provider.contextWindow'),
       supportsStreaming: config.get<boolean>('provider.supportsStreaming'),

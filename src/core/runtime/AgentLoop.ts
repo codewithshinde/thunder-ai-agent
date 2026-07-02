@@ -1,5 +1,6 @@
-import type { LlmProvider, ChatMessage } from '../llm/types';
+import type { AssistantStreamChunk, LlmProvider, ChatMessage } from '../llm/types';
 import type { ToolDefinition, ToolCall } from '../llm/toolTypes';
+import { toAssistantStreamChunk } from '../llm/streamChunks';
 import type { ToolExecutor } from '../safety/ToolExecutor';
 import { formatToolResult } from '../tools/builtinTools';
 import { NO_TOOLS_AUDIT_NUDGE } from './taskKind';
@@ -109,7 +110,7 @@ export class AgentLoop {
     signal?: AbortSignal,
     callbacks?: AgentLoopCallbacks,
     options?: AgentLoopOptions
-  ): AsyncIterable<string> {
+  ): AsyncIterable<AssistantStreamChunk> {
     const messages: ChatMessage[] = [...initialMessages];
     let pendingApproval = false;
     this.lastPendingApproval = false;
@@ -158,8 +159,9 @@ export class AgentLoop {
         if (delta.error) throw new Error(delta.error);
         if (delta.content) {
           stepContent += delta.content;
-          yield delta.content;
         }
+        const chunk = toAssistantStreamChunk(delta.content, delta.reasoning);
+        if (chunk) yield chunk;
         if (delta.tool_calls) {
           for (const partial of delta.tool_calls) {
             const existing = toolCallsMap.get(partial.index);
@@ -432,7 +434,8 @@ export class AgentLoop {
       })) {
         if (signal?.aborted) break;
         if (delta.error) throw new Error(delta.error);
-        if (delta.content) yield delta.content;
+        const chunk = toAssistantStreamChunk(delta.content, delta.reasoning);
+        if (chunk) yield chunk;
         if (delta.done) break;
       }
     }
@@ -447,7 +450,7 @@ export class AgentLoop {
     approved: ApprovedToolResult[],
     signal?: AbortSignal,
     callbacks?: AgentLoopCallbacks
-  ): AsyncIterable<string> {
+  ): AsyncIterable<AssistantStreamChunk> {
     const messages: ChatMessage[] = state.messages.map((m) => ({ ...m }));
     const tools = state.tools;
     const options = state.options;
@@ -537,8 +540,9 @@ export class AgentLoop {
         if (delta.error) throw new Error(delta.error);
         if (delta.content) {
           stepContent += delta.content;
-          yield delta.content;
         }
+        const chunk = toAssistantStreamChunk(delta.content, delta.reasoning);
+        if (chunk) yield chunk;
         if (delta.tool_calls) {
           for (const partial of delta.tool_calls) {
             const existing = toolCallsMap.get(partial.index);

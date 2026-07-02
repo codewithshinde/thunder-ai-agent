@@ -47,6 +47,9 @@ export class UsageTrackingProvider implements LlmProvider {
         if (delta.content) {
           outputText += delta.content;
         }
+        if (delta.reasoning) {
+          outputText += delta.reasoning;
+        }
         if (delta.tool_calls) {
           outputText += JSON.stringify(delta.tool_calls);
         }

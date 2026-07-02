@@ -17,6 +17,12 @@ export async function updateProviderSettings(settings: ProviderSettingsPayload):
   await config.update('provider.type', settings.providerType, target);
   await config.update('provider.baseUrl', settings.baseUrl.trim(), target);
   await config.update('provider.model', settings.model.trim(), target);
+  if (settings.apiVersion !== undefined) {
+    await config.update('provider.apiVersion', settings.apiVersion.trim(), target);
+  }
+  if (settings.region !== undefined) {
+    await config.update('provider.region', settings.region.trim(), target);
+  }
   await config.update('provider.contextWindow', settings.contextWindow, target);
 }
 

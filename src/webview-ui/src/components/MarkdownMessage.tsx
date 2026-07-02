@@ -296,7 +296,7 @@ function safeHref(value: string): string | null {
 }
 
 function extractThinking(content: string): { thinking: string | null; visible: string } {
-  const match = /<think>([\s\S]*?)<\/think>/i.exec(content);
+  const match = /<think>([\s\S]*?)<\/(?:think|redacted_thinking)>/i.exec(content);
   if (!match) return { thinking: null, visible: content };
   return {
     thinking: match[1].trim(),

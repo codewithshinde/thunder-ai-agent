@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentLoop } from '../src/core/runtime/AgentLoop';
+import { chunkContent } from '../src/core/llm/streamChunks';
 import type { ToolExecutor } from '../src/core/safety/ToolExecutor';
 import type { LlmProvider } from '../src/core/llm/types';
 import type { ThunderPlan } from '../src/core/plans/PlanActEngine';
@@ -60,7 +61,7 @@ describe('AgentLoop E2E', () => {
       undefined,
       { planTracker: plan, maxSteps: 3 }
     )) {
-      chunks.push(chunk);
+      chunks.push(chunkContent(chunk));
     }
 
     expect(chunks.join('')).toContain('Done');
@@ -145,7 +146,7 @@ describe('AgentLoop E2E', () => {
       undefined,
       { maxSteps: 3, phaseLock: 'verify' }
     )) {
-      chunks.push(chunk);
+      chunks.push(chunkContent(chunk));
     }
 
     expect(chunks.join('')).toContain('Recovered');
@@ -190,7 +191,7 @@ describe('AgentLoop E2E', () => {
       undefined,
       { maxSteps: 5 }
     )) {
-      chunks.push(chunk);
+      chunks.push(chunkContent(chunk));
     }
 
     expect(executor.execute).toHaveBeenCalledTimes(2);
@@ -220,7 +221,7 @@ describe('AgentLoop E2E', () => {
       state,
       [{ toolCallId: 'c1', toolName: 'write_file', output: 'written', success: true }],
     )) {
-      chunks.push(chunk);
+      chunks.push(chunkContent(chunk));
     }
 
     expect(chunks.join('')).toContain('Resumed');

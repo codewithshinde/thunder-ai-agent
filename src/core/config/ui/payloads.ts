@@ -4,7 +4,10 @@ export type AgentDepthView = 'auto' | 'quick' | 'standard' | 'deep' | 'pilot' | 
 export type ProviderTypeView =
   | 'echo'
   | 'openai-compatible'
+  | 'openrouter'
   | 'openai'
+  | 'azure-openai'
+  | 'bedrock'
   | 'anthropic'
   | 'gemini'
   | 'deepseek'
@@ -15,6 +18,8 @@ export interface ProviderSettingsPayload {
   providerType: ProviderTypeView;
   baseUrl: string;
   model: string;
+  apiVersion?: string;
+  region?: string;
   contextWindow: number;
 }
 

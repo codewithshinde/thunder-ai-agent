@@ -1,5 +1,6 @@
-import type { LlmProvider } from '../llm/types';
+import type { AssistantStreamChunk, LlmProvider } from '../llm/types';
 import type { ToolDefinition } from '../llm/toolTypes';
+import { chunkContent } from '../llm/streamChunks';
 import type { ThunderSession } from '../session/ThunderSession';
 import type { PlanPhase, ThunderPlan } from '../plans/PlanActEngine';
 import {
@@ -231,7 +232,7 @@ export class PlanExecutor {
         maxAutoContinues: options?.planMaxAutoContinues ?? 1,
       }
     )) {
-      output += chunk;
+      output += chunkContent(chunk);
       if (output.length > 12_000) {
         output = output.slice(-12_000);
       }
@@ -251,7 +252,7 @@ export class PlanExecutor {
     signal?: AbortSignal,
     loopCallbacks?: AgentLoopCallbacks,
     options?: PlanExecutorOptions
-  ): AsyncIterable<string> {
+  ): AsyncIterable<AssistantStreamChunk> {
     this.stepSummaries = [];
     this.touchedFiles.clear();
     const maxRetries = options?.stepMaxRetries ?? 2;
@@ -392,7 +393,7 @@ export class PlanExecutor {
             }
           )) {
             yield chunk;
-            stepOutput += chunk;
+            stepOutput += chunkContent(chunk);
           }
           pendingApproval = this.agentLoop.hadPendingApproval();
         }
@@ -539,7 +540,7 @@ export class PlanExecutor {
     signal?: AbortSignal,
     loopCallbacks?: AgentLoopCallbacks,
     options?: PlanExecutorOptions
-  ): AsyncIterable<string> {
+  ): AsyncIterable<AssistantStreamChunk> {
     const touchedFiles = options?.touchedFiles ?? Array.from(this.touchedFiles);
     const workspaceErrors = await this.collectWorkspaceErrors(touchedFiles);
     const verifyContextBlock = options?.workspace

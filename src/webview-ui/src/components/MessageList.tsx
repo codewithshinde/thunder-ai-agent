@@ -3,6 +3,7 @@ import type { AgentActivityEntry, AgentLiveStatusView, ApprovalRequestView, Chat
 import { AGENT_NAME } from '../../../shared/brand';
 import { MarkdownMessage } from './MarkdownMessage';
 import { AgentActivityPanel } from './AgentActivityPanel';
+import { ThinkingRow } from './ThinkingRow';
 import { useStreamReveal } from '../hooks/useStreamReveal';
 
 interface MessageListProps {
@@ -13,9 +14,22 @@ interface MessageListProps {
   approvals?: ApprovalRequestView[];
 }
 
-function AssistantMessage({ content, streaming }: { content: string; streaming?: boolean }) {
+function AssistantMessage({
+  content,
+  reasoningContent,
+  streaming,
+}: {
+  content: string;
+  reasoningContent?: string;
+  streaming?: boolean;
+}) {
   const revealed = useStreamReveal(content, Boolean(streaming));
-  return <MarkdownMessage content={revealed} streaming={streaming} />;
+  return (
+    <>
+      <ThinkingRow content={reasoningContent ?? ''} streaming={streaming} />
+      <MarkdownMessage content={revealed} streaming={streaming} />
+    </>
+  );
 }
 
 export function MessageList({ messages, loading, agentActivity = [], agentLiveStatus = null, approvals = [] }: MessageListProps) {
@@ -41,11 +55,25 @@ export function MessageList({ messages, loading, agentActivity = [], agentLiveSt
           <div className="message-content">
             {msg.role === 'assistant' ? (
               msg.content ? (
-                <AssistantMessage content={msg.content} streaming={msg.streaming} />
+                <AssistantMessage
+                  content={msg.content}
+                  reasoningContent={msg.reasoningContent}
+                  streaming={msg.streaming}
+                />
+              ) : msg.reasoningContent ? (
+                <>
+                  <ThinkingRow content={msg.reasoningContent} streaming={msg.streaming} />
+                  {msg.streaming && (
+                    <p className="message-working">
+                      <span className="message-working__pulse" aria-hidden="true" />
+                      Thinking...
+                    </p>
+                  )}
+                </>
               ) : msg.streaming ? (
                 <p className="message-working">
                   <span className="message-working__pulse" aria-hidden="true" />
-                  Thinking…
+                  Thinking...
                 </p>
               ) : (
                 <p className="message-working message-working--muted">No response text</p>

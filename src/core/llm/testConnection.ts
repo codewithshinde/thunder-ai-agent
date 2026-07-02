@@ -10,35 +10,54 @@ export interface ProviderConnectionResult {
 export async function testOpenAiCompatibleConnection(
   baseUrl: string,
   model: string,
-  apiKey?: string
+  apiKey?: string,
+  options: {
+    headers?: Record<string, string>;
+    chatCompletionsPath?: string;
+    queryParams?: Record<string, string>;
+    authHeader?: 'authorization' | 'api-key' | 'x-api-key';
+  } = {}
 ): Promise<ProviderConnectionResult> {
   const root = baseUrl.replace(/\/$/, '');
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...(options.headers ?? {}) };
   if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
+    if (options.authHeader === 'api-key') {
+      headers['api-key'] = apiKey;
+    } else if (options.authHeader === 'x-api-key') {
+      headers['x-api-key'] = apiKey;
+    } else {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
   }
 
   try {
-    const modelsRes = await fetch(`${root}/models`, { headers });
-    if (modelsRes.ok) {
-      const data = (await modelsRes.json()) as { data?: Array<{ id: string }> };
-      const models = data.data?.map((m) => m.id) ?? [];
-      const hasModel = models.length === 0 || models.some((m) => m === model || m.startsWith(model));
-      if (!hasModel && models.length > 0) {
+    if (!options.chatCompletionsPath) {
+      const modelsRes = await fetch(`${root}/models`, { headers });
+      if (modelsRes.ok) {
+        const data = (await modelsRes.json()) as { data?: Array<{ id: string }> };
+        const models = data.data?.map((m) => m.id) ?? [];
+        const hasModel = models.length === 0 || models.some((m) => m === model || m.startsWith(model));
+        if (!hasModel && models.length > 0) {
+          return {
+            ok: false,
+            message: `Connected, but model "${model}" not found. Available: ${models.slice(0, 8).join(', ')}`,
+            models,
+          };
+        }
         return {
-          ok: false,
-          message: `Connected, but model "${model}" not found. Available: ${models.slice(0, 8).join(', ')}`,
+          ok: true,
+          message: `Connected to ${root}. Model "${model}"${models.length ? ' found' : ' (could not list models)'}.`,
           models,
         };
       }
-      return {
-        ok: true,
-        message: `Connected to ${root}. Model "${model}"${models.length ? ' found' : ' (could not list models)'}.`,
-        models,
-      };
     }
 
-    const probe = await fetch(`${root}/chat/completions`, {
+    const probeUrl = new URL(`${root}/${(options.chatCompletionsPath ?? 'chat/completions').replace(/^\//, '')}`);
+    for (const [key, value] of Object.entries(options.queryParams ?? {})) {
+      if (value) probeUrl.searchParams.set(key, value);
+    }
+
+    const probe = await fetch(probeUrl.toString(), {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -134,7 +153,9 @@ export async function testProviderConnection(
   providerType: ProviderType,
   baseUrl: string,
   model: string,
-  apiKey?: string
+  apiKey?: string,
+  apiVersion = '2024-10-21',
+  region = 'us-east-1'
 ): Promise<ProviderConnectionResult> {
   if (providerType === 'echo') {
     return { ok: true, message: 'Echo mode — no network connection required.' };
@@ -145,8 +166,29 @@ export async function testProviderConnection(
   if (providerType === 'gemini') {
     return testGeminiConnection(baseUrl, model, apiKey);
   }
+  if (providerType === 'bedrock') {
+    return {
+      ok: true,
+      message: `AWS Bedrock configured for ${region}. Mitii will use the AWS default credential chain and model "${model}".`,
+    };
+  }
   if (isCloudProvider(providerType) && !apiKey?.trim()) {
     return { ok: false, message: `${providerType} requires an API key.` };
+  }
+  if (providerType === 'openrouter') {
+    return testOpenAiCompatibleConnection(baseUrl, model, apiKey, {
+      headers: {
+        'HTTP-Referer': 'https://mitii.dev',
+        'X-Title': 'Mitii Agent',
+      },
+    });
+  }
+  if (providerType === 'azure-openai') {
+    return testOpenAiCompatibleConnection(baseUrl, model, apiKey, {
+      authHeader: 'api-key',
+      chatCompletionsPath: `openai/deployments/${encodeURIComponent(model)}/chat/completions`,
+      queryParams: { 'api-version': apiVersion },
+    });
   }
   return testOpenAiCompatibleConnection(baseUrl, model, apiKey);
 }

@@ -40,6 +40,8 @@ export class LlmProviderRegistry {
       type: options.type,
       baseUrl: options.baseUrl ?? '',
       model: options.model ?? '',
+      apiVersion: options.apiVersion ?? '2024-10-21',
+      region: options.region ?? 'us-east-1',
       apiKeyRef: 'thunder.apiKey',
       contextWindow: options.contextWindow ?? 8192,
       supportsStreaming: options.supportsStreaming ?? true,

@@ -8,13 +8,21 @@ export interface OpenAiCompatibleConfig {
   model: string;
   apiKey?: string;
   capabilities?: Partial<ModelCapabilities>;
+  providerId?: string;
+  defaultHeaders?: Record<string, string>;
+  authHeader?: 'authorization' | 'api-key' | 'x-api-key';
+  chatCompletionsPath?: string;
+  queryParams?: Record<string, string>;
+  includeReasoning?: boolean;
+  reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
 export class OpenAiCompatibleProvider implements LlmProvider {
-  readonly id = 'openai-compatible';
+  readonly id: string;
   readonly capabilities: ModelCapabilities;
 
   constructor(private readonly config: OpenAiCompatibleConfig) {
+    this.id = config.providerId ?? 'openai-compatible';
     this.capabilities = {
       contextWindow: config.capabilities?.contextWindow ?? 8192,
       supportsStreaming: config.capabilities?.supportsStreaming ?? true,
@@ -24,14 +32,24 @@ export class OpenAiCompatibleProvider implements LlmProvider {
   }
 
   async *complete(request: ChatRequest): AsyncIterable<ChatDelta> {
-    const url = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+    const url = buildChatCompletionsUrl(this.config);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...(this.config.defaultHeaders ?? {}),
     };
     if (this.config.apiKey) {
-      headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+      const authHeader = this.config.authHeader ?? 'authorization';
+      if (authHeader === 'api-key') {
+        headers['api-key'] = this.config.apiKey;
+      } else if (authHeader === 'x-api-key') {
+        headers['x-api-key'] = this.config.apiKey;
+      } else {
+        headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+      }
     }
 
+    const includeReasoning = request.includeReasoning ?? this.config.includeReasoning;
+    const reasoningEffort = request.reasoningEffort ?? this.config.reasoningEffort;
     const body: Record<string, unknown> = {
       model: request.model ?? this.config.model,
       messages: sanitizeOpenAiCompatibleMessages(request.messages).map(formatMessage),
@@ -39,6 +57,12 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       max_tokens: request.maxTokens,
       stream: request.stream !== false,
     };
+    if (includeReasoning) {
+      body.include_reasoning = true;
+    }
+    if (reasoningEffort) {
+      body.reasoning_effort = reasoningEffort;
+    }
 
     if (this.capabilities.supportsTools && request.tools && request.tools.length > 0) {
       body.tools = request.tools;
@@ -73,6 +97,9 @@ export class OpenAiCompatibleProvider implements LlmProvider {
           choices?: Array<{
             message?: {
               content?: string;
+              reasoning?: string;
+              reasoning_content?: string;
+              redacted_reasoning?: string;
               tool_calls?: Array<{
                 id: string;
                 type: 'function';
@@ -85,6 +112,10 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         const message = json.choices?.[0]?.message;
         if (message?.content) {
           yield { content: message.content };
+        }
+        const reasoning = message?.reasoning ?? message?.reasoning_content ?? message?.redacted_reasoning;
+        if (reasoning) {
+          yield { reasoning };
         }
         if (message?.tool_calls) {
           for (const [index, tc] of message.tool_calls.entries()) {
@@ -163,6 +194,16 @@ export function sanitizeOpenAiCompatibleMessages(messages: ChatRequest['messages
   }
 
   return sanitized;
+}
+
+function buildChatCompletionsUrl(config: OpenAiCompatibleConfig): string {
+  const root = config.baseUrl.replace(/\/$/, '');
+  const path = (config.chatCompletionsPath ?? 'chat/completions').replace(/^\//, '');
+  const url = new URL(`${root}/${path}`);
+  for (const [key, value] of Object.entries(config.queryParams ?? {})) {
+    if (value) url.searchParams.set(key, value);
+  }
+  return url.toString();
 }
 
 function toolResultAsUserMessage(message: ChatRequest['messages'][number]): ChatRequest['messages'][number] {

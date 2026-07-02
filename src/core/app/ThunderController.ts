@@ -39,7 +39,7 @@ import {
 } from '../tools/builtinTools';
 import { ProjectCatalogContextSource, discoverProjectCatalog, saveProjectCatalog } from '../modes/ask';
 import { createMarkStepCompleteTool, createProposePlanMutationTool } from '../tools/planTools';
-import type { LlmProvider } from '../llm/types';
+import type { AssistantStreamChunk, LlmProvider } from '../llm/types';
 import { UsageTrackingProvider, type ModelCallUsage } from '../llm/UsageTrackingProvider';
 import { scaffoldMitiiWorkspace } from '../mcp/scaffoldMitiiWorkspace';
 import { AgentTaskState } from '../runtime/AgentTaskState';
@@ -934,6 +934,8 @@ export class ThunderController {
         providerType: config.provider.type,
         baseUrl: config.provider.baseUrl,
         model: config.provider.model,
+        apiVersion: config.provider.apiVersion,
+        region: config.provider.region,
         contextWindow: config.provider.contextWindow,
         indexingEnabled: config.indexing.enabled,
         approvalMode: config.safety.approvalMode,
@@ -1473,7 +1475,7 @@ export class ThunderController {
     content: string,
     recentMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [],
     options?: { preserveActivity?: boolean; pinnedContext?: PinnedContextView[] }
-  ): Promise<AsyncIterable<string>> {
+  ): Promise<AsyncIterable<AssistantStreamChunk>> {
     if (!this.session) throw normalizeError(new Error('Session not initialized'));
     const provider = await this.resolveProviderForMode(this.session.mode);
     if (!provider) throw normalizeError(new Error('No LLM provider configured'));
@@ -1801,7 +1803,7 @@ export class ThunderController {
     return this.chatOrchestrator?.hasSuspendState() ?? false;
   }
 
-  resumeAfterApproval(): AsyncIterable<string> {
+  resumeAfterApproval(): AsyncIterable<AssistantStreamChunk> {
     this.ensureChatOrchestrator();
     if (!this.chatOrchestrator) {
       return (async function* empty() {})();
@@ -1965,6 +1967,8 @@ export class ThunderController {
     const providerType = settings?.providerType ?? config.provider.type;
     const baseUrl = settings?.baseUrl.trim() || config.provider.baseUrl;
     const model = settings?.model.trim() || config.provider.model;
+    const apiVersion = settings?.apiVersion?.trim() || config.provider.apiVersion;
+    const region = settings?.region?.trim() || config.provider.region;
     const requestedContextWindow = settings?.contextWindow
       ? Math.max(1024, Math.min(settings.contextWindow, 1_000_000))
       : config.provider.contextWindow;
@@ -1982,6 +1986,8 @@ export class ThunderController {
           providerType,
           baseUrl,
           model,
+          apiVersion,
+          region,
           contextWindow,
           connectionOk: true,
           connectionStatus: 'Echo mode — no LLM needed. Responses are mirrored for UI testing.',
@@ -1994,7 +2000,9 @@ export class ThunderController {
       providerType as import('../config/schema').ProviderType,
       baseUrl,
       model,
-      apiKey
+      apiKey,
+      apiVersion,
+      region
     );
 
     this.notifyUi({
@@ -2003,6 +2011,8 @@ export class ThunderController {
         providerType,
         baseUrl,
         model,
+        apiVersion,
+        region,
         contextWindow,
         connectionOk: result.ok,
         connectionStatus: result.message,

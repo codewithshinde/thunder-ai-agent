@@ -14,6 +14,12 @@ export function resolvePlanningSkillNames(
   if (intent === 'audit' || taskAnalysis?.kind === 'audit') {
     names.push('audit-cleanup');
   }
+  if (/\b(console\.log|inline style|missing types?|type annotations?|eslint|lint|tech debt|code smells?)\b/i.test(taskAnalysis?.summary ?? '')) {
+    names.push('code-smells-and-tech-debt');
+  }
+  if (/\b(\.env|environment variable|missing keys?|secrets?|api keys?|tokens?)\b/i.test(taskAnalysis?.summary ?? '')) {
+    names.push('environment-and-secrets');
+  }
   if (intent === 'bugfix' || taskAnalysis?.kind === 'question') {
     names.push('debugging-and-error-recovery');
   }
@@ -67,4 +73,5 @@ PLANNING SKILLS:
 - Call use_skill to load a workspace playbook when you need one not already injected below.
 - For task breakdown and phased plans, use_skill("planning-and-task-breakdown") if not pre-loaded.
 - For skill discovery/routing, use_skill("using-agent-skills") if not pre-loaded.
+- For tech-debt and env/secrets tasks, prefer the bundled script-backed skills before manual inspection.
 - Follow loaded skill workflows: dependency graph, vertical slices, acceptance criteria, and verification commands per step.`;
