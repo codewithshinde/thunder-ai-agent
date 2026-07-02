@@ -127,6 +127,34 @@ describe('sanitizeOpenAiCompatibleMessages', () => {
 });
 
 describe('OpenAiCompatibleProvider', () => {
+  it('sends the configured model in chat completion requests', async () => {
+    const provider = new OpenAiCompatibleProvider({
+      baseUrl: 'https://example.com/v1',
+      model: 'devstral-small-2:24b',
+      capabilities: { supportsTools: true },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      for await (const _delta of provider.complete({
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      })) {
+        // consume stream
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.model).toBe('devstral-small-2:24b');
+    expect(body.model).not.toBe('qwen3.6:27b');
+  });
+
   it('omits tool definitions when the configured model does not support tools', async () => {
     const provider = new OpenAiCompatibleProvider({
       baseUrl: 'https://example.com/v1',

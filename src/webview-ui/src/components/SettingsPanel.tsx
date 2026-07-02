@@ -57,6 +57,8 @@ const ASK_DEPTH_OPTIONS: Array<{ id: SettingsView['askDepth']; label: string }> 
   { id: 'quick', label: 'Quick' },
   { id: 'standard', label: 'Standard' },
   { id: 'deep', label: 'Deep' },
+  { id: 'pilot', label: 'Pilot' },
+  { id: 'enterprise', label: 'Enterprise' },
 ];
 
 const PLAN_DEPTH_OPTIONS: Array<{ id: SettingsView['planDepth']; label: string }> = [
@@ -64,6 +66,8 @@ const PLAN_DEPTH_OPTIONS: Array<{ id: SettingsView['planDepth']; label: string }
   { id: 'quick', label: 'Quick discovery' },
   { id: 'standard', label: 'Standard discovery' },
   { id: 'deep', label: 'Deep discovery' },
+  { id: 'pilot', label: 'Pilot discovery' },
+  { id: 'enterprise', label: 'Enterprise discovery' },
 ];
 
 const ACT_DEPTH_OPTIONS: Array<{ id: SettingsView['actDepth']; label: string }> = [
@@ -71,6 +75,8 @@ const ACT_DEPTH_OPTIONS: Array<{ id: SettingsView['actDepth']; label: string }> 
   { id: 'quick', label: 'Quick execution' },
   { id: 'standard', label: 'Standard execution' },
   { id: 'deep', label: 'Deep execution' },
+  { id: 'pilot', label: 'Pilot execution' },
+  { id: 'enterprise', label: 'Enterprise execution' },
 ];
 
 const AUTONOMY_PRESETS: Array<{

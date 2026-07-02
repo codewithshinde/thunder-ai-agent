@@ -121,6 +121,8 @@ function depthDefaultSteps(actDepth: ActDepth): number | undefined {
   if (actDepth === 'quick') return 6;
   if (actDepth === 'standard') return 10;
   if (actDepth === 'deep') return 16;
+  if (actDepth === 'pilot') return 24;
+  if (actDepth === 'enterprise') return 32;
   return undefined;
 }
 

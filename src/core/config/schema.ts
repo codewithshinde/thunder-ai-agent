@@ -45,6 +45,8 @@ export const ContextConfigSchema = z.object({
   rerankerTopK: z.number().int().min(3).max(30).default(8),
 });
 
+export const AgentDepthSchema = z.enum(['auto', 'quick', 'standard', 'deep', 'pilot', 'enterprise']);
+
 export const SafetyConfigSchema = z.object({
   requireApprovalForWrites: z.boolean().default(true),
   requireApprovalForShell: z.boolean().default(true),
@@ -66,11 +68,11 @@ export const AgentConfigSchema = z.object({
   subagentsEnabled: z.boolean().default(true),
   maxSteps: z.number().int().min(1).max(100).default(15),
   askMaxSteps: z.number().int().min(1).max(50).default(18),
-  askDepth: z.enum(['auto', 'quick', 'standard', 'deep']).default('auto'),
+  askDepth: AgentDepthSchema.default('auto'),
   askAutoContinue: z.boolean().default(true),
   askMaxAutoContinues: z.number().int().min(0).max(10).default(1),
-  planDepth: z.enum(['auto', 'quick', 'standard', 'deep']).default('auto'),
-  actDepth: z.enum(['auto', 'quick', 'standard', 'deep']).default('auto'),
+  planDepth: AgentDepthSchema.default('auto'),
+  actDepth: AgentDepthSchema.default('auto'),
   autoContinue: z.boolean().default(true),
   maxAutoContinues: z.number().int().min(0).max(10).default(2),
   researchAgentMaxSteps: z.number().int().min(1).max(50).default(6),
@@ -172,6 +174,7 @@ export type IndexingConfig = z.infer<typeof IndexingConfigSchema>;
 export type ContextConfig = z.infer<typeof ContextConfigSchema>;
 export type SafetyConfig = z.infer<typeof SafetyConfigSchema>;
 export type MemoryConfig = z.infer<typeof MemoryConfigSchema>;
+export type AgentDepth = z.infer<typeof AgentDepthSchema>;
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;

@@ -102,6 +102,22 @@ describe('Act orchestration boundary', () => {
     expect(plan.maxSteps).toBe(16);
   });
 
+  it('honors pilot and enterprise Act depths as larger execution budgets', () => {
+    const pilot = ActOrchestrator.prepare('Implement the new settings flow', {
+      actDepth: 'pilot',
+      configuredMaxSteps: 100,
+      taskAnalysis: analyzeTask('Implement the new settings flow', 'agent'),
+    });
+    const enterprise = ActOrchestrator.prepare('Implement the new settings flow', {
+      actDepth: 'enterprise',
+      configuredMaxSteps: 100,
+      taskAnalysis: analyzeTask('Implement the new settings flow', 'agent'),
+    });
+
+    expect(pilot.maxSteps).toBe(24);
+    expect(enterprise.maxSteps).toBe(32);
+  });
+
   it('includes configured verification commands in the Act prompt contract', () => {
     const plan = ActOrchestrator.prepare('Fix the failing build', {
       verifyCommands: ['npm test', 'npm run lint'],

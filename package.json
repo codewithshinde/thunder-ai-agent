@@ -2,7 +2,7 @@
   "name": "mitii-ai-agent",
   "displayName": "Mitii AI Agent",
   "description": "Local-first VS Code AI coding agent with precise repo context and safe Plan/Act workflow",
-  "version": "2.7.14",
+  "version": "2.7.15",
   "publisher": "mitii",
   "icon": "media/mitii-short-logo.png",
   "license": "AGPL-3.0-or-later",
@@ -344,7 +344,9 @@
             "auto",
             "quick",
             "standard",
-            "deep"
+            "deep",
+            "pilot",
+            "enterprise"
           ],
           "default": "auto",
           "description": "Ask-mode exploration depth. Auto chooses by intent; quick is concise; deep explores more before answering."
@@ -355,7 +357,9 @@
             "auto",
             "quick",
             "standard",
-            "deep"
+            "deep",
+            "pilot",
+            "enterprise"
           ],
           "default": "auto",
           "description": "Plan-mode discovery depth before structured plan compilation. Auto chooses by intent; deep explores more of the codebase."
@@ -366,7 +370,9 @@
             "auto",
             "quick",
             "standard",
-            "deep"
+            "deep",
+            "pilot",
+            "enterprise"
           ],
           "default": "auto",
           "description": "Agent/Act execution depth. Auto chooses by task route; quick caps direct work, deep allows up to 16 tool steps."

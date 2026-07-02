@@ -86,6 +86,8 @@ function depthDefaultSteps(planDepth: PlanDepth): number | undefined {
   if (planDepth === 'quick') return 5;
   if (planDepth === 'standard') return 8;
   if (planDepth === 'deep') return 12;
+  if (planDepth === 'pilot') return 16;
+  if (planDepth === 'enterprise') return 20;
   return undefined;
 }
 

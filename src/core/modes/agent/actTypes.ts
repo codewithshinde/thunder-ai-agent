@@ -1,4 +1,5 @@
 import type { AskScopeResolution, ProjectCatalog } from '../ask/askTypes';
+import type { AgentDepth } from '../../config/schema';
 import type { TaskAnalysis, TaskComplexity } from '../../runtime/TaskAnalyzer';
 
 export type ActIntent =
@@ -47,4 +48,4 @@ export interface ActRunPlan {
   taskAnalysis: TaskAnalysis;
 }
 
-export type ActDepth = 'auto' | 'quick' | 'standard' | 'deep';
+export type ActDepth = AgentDepth;

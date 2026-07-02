@@ -200,8 +200,13 @@ describe('Ask and Plan mode reliability', () => {
     const { PlanOrchestrator } = await import('../src/core/modes/plan/PlanOrchestrator');
     const quick = PlanOrchestrator.prepare('Implement SDK plan runner', { planDepth: 'quick' });
     const deep = PlanOrchestrator.prepare('Implement SDK plan runner', { planDepth: 'deep' });
+    const enterprise = PlanOrchestrator.prepare('Implement SDK plan runner', {
+      planDepth: 'enterprise',
+      configuredMaxSteps: 100,
+    });
 
     expect(quick.discoveryMaxSteps).toBeLessThan(deep.discoveryMaxSteps);
+    expect(enterprise.discoveryMaxSteps).toBeGreaterThan(deep.discoveryMaxSteps);
     expect(quick.promptContext).toContain('Plan routing');
   });
 

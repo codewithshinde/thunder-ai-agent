@@ -1,4 +1,5 @@
 import type { AskRunPlan, ProjectCatalog } from './askTypes';
+import type { AgentDepth } from '../../config/schema';
 import { routeAskIntent } from './AskIntentRouter';
 import { buildAskPromptContext } from './askPrompts';
 import { loadProjectCatalog } from './ProjectCatalog';
@@ -8,7 +9,7 @@ export interface AskPrepareOptions {
   workspaceRoot?: string;
   catalog?: ProjectCatalog;
   configuredMaxSteps?: number;
-  askDepth?: 'auto' | 'quick' | 'standard' | 'deep';
+  askDepth?: AgentDepth;
   askAutoContinue?: boolean;
   askMaxAutoContinues?: number;
 }
@@ -54,6 +55,10 @@ function resolveAskMaxAutoContinues(
 ): number {
   const automatic = askDepth === 'quick'
     ? 0
+    : askDepth === 'pilot'
+      ? 2
+      : askDepth === 'enterprise'
+        ? 3
     : intent === 'implement_here' || intent === 'architecture' || intent === 'cross_project'
       ? 1
       : profile === 'deep'
@@ -73,6 +78,8 @@ function depthDefaultSteps(askDepth: AskPrepareOptions['askDepth']): number | un
   if (askDepth === 'quick') return 8;
   if (askDepth === 'standard') return 16;
   if (askDepth === 'deep') return 22;
+  if (askDepth === 'pilot') return 28;
+  if (askDepth === 'enterprise') return 34;
   return undefined;
 }
 

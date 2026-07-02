@@ -1,4 +1,5 @@
 export type ApprovalMode = 'review_all' | 'ask_edits' | 'ask_deletes' | 'ask_commands' | 'auto';
+export type AgentDepthView = 'auto' | 'quick' | 'standard' | 'deep' | 'pilot' | 'enterprise';
 
 export type ProviderTypeView =
   | 'echo'
@@ -20,9 +21,9 @@ export interface ProviderSettingsPayload {
 export interface AgentSettingsPayload {
   subagentsEnabled: boolean;
   maxSteps: number;
-  askDepth: 'auto' | 'quick' | 'standard' | 'deep';
-  planDepth: 'auto' | 'quick' | 'standard' | 'deep';
-  actDepth: 'auto' | 'quick' | 'standard' | 'deep';
+  askDepth: AgentDepthView;
+  planDepth: AgentDepthView;
+  actDepth: AgentDepthView;
   askMaxSteps: number;
   askAutoContinue: boolean;
   askMaxAutoContinues: number;

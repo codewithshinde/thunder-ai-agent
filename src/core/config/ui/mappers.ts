@@ -1,6 +1,3 @@
-import { resolveLocalModelPresetContextWindow } from '../../../shared/modelPresets';
-import { getProviderPreset, isCloudProvider } from '../../llm/providerPresets';
-import type { ProviderType } from '../schema';
 import type {
   AgentSettingsPayload,
   McpToggles,
@@ -13,24 +10,12 @@ export function clampInteger(value: number, min: number, max: number): number {
 }
 
 export function resolveAutoContextWindow(
-  providerType: string,
-  model: string,
+  _providerType: string,
+  _model: string,
   requestedContextWindow: number,
-  previousContextWindow: number
+  _previousContextWindow: number
 ): number {
-  const requested = clampInteger(requestedContextWindow, 1024, 1_000_000);
-  const previous = clampInteger(previousContextWindow, 1024, 1_000_000);
-  if (requested !== previous) return requested;
-
-  if (providerType === 'openai-compatible') {
-    return resolveLocalModelPresetContextWindow(model) ?? requested;
-  }
-
-  if (isCloudProvider(providerType as ProviderType)) {
-    return getProviderPreset(providerType as ProviderType)?.contextWindow ?? requested;
-  }
-
-  return requested;
+  return clampInteger(requestedContextWindow, 1024, 1_000_000);
 }
 
 export function normalizeProviderSettings(

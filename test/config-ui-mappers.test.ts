@@ -47,6 +47,23 @@ describe('config UI mappers', () => {
     });
   });
 
+  it('preserves the requested context window instead of replacing it with a model preset', () => {
+    expect(
+      normalizeProviderSettings(
+        {
+          providerType: 'openai-compatible',
+          baseUrl: 'http://localhost:11434/v1',
+          model: 'qwen3.5:latest',
+          contextWindow: 32_000,
+        },
+        256_000
+      )
+    ).toMatchObject({
+      model: 'qwen3.5:latest',
+      contextWindow: 32_000,
+    });
+  });
+
   it('clamps agent setting counters and trims model overrides', () => {
     expect(
       normalizeAgentSettings(
@@ -56,6 +73,9 @@ describe('config UI mappers', () => {
           askMaxAutoContinues: 99,
           maxAutoContinues: Number.NaN,
           researchAgentMaxSteps: 50.9,
+          askDepth: 'pilot',
+          planDepth: 'enterprise',
+          actDepth: 'pilot',
           planModel: '  planner  ',
           planBaseUrl: '  http://planner.local/v1  ',
           actModel: '  builder  ',
@@ -68,6 +88,9 @@ describe('config UI mappers', () => {
       askMaxAutoContinues: 10,
       maxAutoContinues: 0,
       researchAgentMaxSteps: 50,
+      askDepth: 'pilot',
+      planDepth: 'enterprise',
+      actDepth: 'pilot',
       planModel: 'planner',
       planBaseUrl: 'http://planner.local/v1',
       actModel: 'builder',

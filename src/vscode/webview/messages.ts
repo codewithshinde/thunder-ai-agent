@@ -1,6 +1,7 @@
 import type { ThunderMode } from '../../core/session/ThunderSession';
 import type {
   AgentSettingsPayload,
+  AgentDepthView,
   ApprovalMode,
   McpCustomServerView,
   McpSettingsPayload,
@@ -11,6 +12,7 @@ import type {
 } from '../../core/config/ui/payloads';
 export type {
   AgentSettingsPayload,
+  AgentDepthView,
   ApprovalMode,
   IndexingSettingsPayload,
   McpCustomServerView,
@@ -232,9 +234,9 @@ export interface SettingsView {
   memoryEnabled: boolean;
   subagentsEnabled: boolean;
   agentMaxSteps: number;
-  askDepth: 'auto' | 'quick' | 'standard' | 'deep';
-  planDepth: 'auto' | 'quick' | 'standard' | 'deep';
-  actDepth: 'auto' | 'quick' | 'standard' | 'deep';
+  askDepth: AgentDepthView;
+  planDepth: AgentDepthView;
+  actDepth: AgentDepthView;
   askMaxSteps: number;
   askAutoContinue: boolean;
   askMaxAutoContinues: number;

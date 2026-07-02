@@ -1229,6 +1229,11 @@ body,
   color: var(--thunder-muted);
 }
 
+.composer__depth-select {
+  max-width: 104px;
+  color: var(--thunder-muted);
+}
+
 .composer__mode-select:focus {
   outline: 1px solid var(--thunder-accent);
 }

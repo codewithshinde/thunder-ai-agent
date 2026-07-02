@@ -2,6 +2,7 @@ import { useState, useCallback, type KeyboardEvent, useRef, useEffect } from 're
 import type { ThunderMode } from '../../../core/session/ThunderSession';
 import type {
   ApprovalMode,
+  AgentDepthView,
   ContextPathSuggestion,
   PinnedContextView,
   TokenUsageView,
@@ -15,6 +16,7 @@ interface ChatInputProps {
   loading: boolean;
   mode: ThunderMode;
   approvalMode: ApprovalMode;
+  activeDepth: AgentDepthView;
   tokenUsage: TokenUsageView;
   pinnedContext: PinnedContextView[];
   canRetry: boolean;
@@ -22,6 +24,7 @@ interface ChatInputProps {
   onStop?: () => void;
   onModeChange: (mode: ThunderMode) => void;
   onApprovalModeChange: (mode: ApprovalMode) => void;
+  onDepthChange: (depth: AgentDepthView) => void;
   onRetry?: () => void;
   onCopyResponse?: () => void;
   onCopyChatHistory?: () => void;
@@ -39,10 +42,20 @@ const MODES: { id: ThunderMode; label: string; description: string }[] = [
   { id: 'review', label: 'Review', description: 'Inspect code and risks' },
 ];
 
+const DEPTH_OPTIONS: Array<{ id: AgentDepthView; label: string; title: string }> = [
+  { id: 'auto', label: 'Auto', title: 'Choose depth from the request' },
+  { id: 'quick', label: 'Quick', title: 'Use a smaller exploration or execution budget' },
+  { id: 'standard', label: 'Standard', title: 'Use the normal exploration or execution budget' },
+  { id: 'deep', label: 'Deep', title: 'Use a larger budget for complex work' },
+  { id: 'pilot', label: 'Pilot', title: 'Use an expanded budget for broad implementation or investigation' },
+  { id: 'enterprise', label: 'Enterprise', title: 'Use the largest built-in budget for exhaustive work' },
+];
+
 export function ChatInput({
   loading,
   mode,
   approvalMode,
+  activeDepth,
   tokenUsage,
   pinnedContext,
   canRetry,
@@ -50,6 +63,7 @@ export function ChatInput({
   onStop,
   onModeChange,
   onApprovalModeChange,
+  onDepthChange,
   onRetry,
   onCopyResponse,
   onCopyChatHistory,
@@ -69,6 +83,7 @@ export function ChatInput({
   const activeMode = MODES.find((m) => m.id === mode) ?? MODES[0];
   const activeApproval =
     APPROVAL_MODE_OPTIONS.find((option) => option.id === approvalMode) ?? APPROVAL_MODE_OPTIONS[0];
+  const selectedDepth = DEPTH_OPTIONS.find((option) => option.id === activeDepth) ?? DEPTH_OPTIONS[0];
 
   useEffect(() => {
     if (!searchRequestId || searchRequestId !== pathSearchRequestId) return;
@@ -234,6 +249,22 @@ export function ChatInput({
                 title={activeApproval.title}
               >
                 {APPROVAL_MODE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <IconChevronDown className="composer__mode-chevron" width={12} height={12} aria-hidden />
+            </div>
+            <div className="composer__mode-select-wrap">
+              <select
+                className="composer__mode-select composer__depth-select"
+                value={activeDepth}
+                onChange={(e) => onDepthChange(e.target.value as AgentDepthView)}
+                aria-label="Agent depth"
+                title={selectedDepth.title}
+              >
+                {DEPTH_OPTIONS.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
                   </option>

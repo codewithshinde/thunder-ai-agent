@@ -1,9 +1,10 @@
 import type { AskScopeResolution, ProjectCatalog } from '../ask/askTypes';
 import type { TaskComplexity } from '../../runtime/TaskAnalyzer';
+import type { AgentDepth } from '../../config/schema';
 
 export type PlanIntent = 'feature' | 'refactor' | 'bugfix' | 'audit' | 'docs' | 'spike' | 'question';
 
-export type PlanDepth = 'auto' | 'quick' | 'standard' | 'deep';
+export type PlanDepth = AgentDepth;
 
 export interface PlanRoute {
   intent: PlanIntent;

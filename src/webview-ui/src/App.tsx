@@ -16,11 +16,43 @@ import { DevPanels } from './components/DevPanels';
 import { IconButton } from './components/IconButton';
 import { IconChat, IconHistory, IconPlus, IconSettings } from './components/Icons';
 import { deriveSafetySettings } from './utils/approvalMode';
+import type { AgentDepthView, AgentSettingsPayload, SettingsView } from '../../vscode/webview/messages';
+import type { ThunderMode } from '../../core/session/ThunderSession';
+
+function activeDepthForMode(settings: SettingsView, mode: ThunderMode): AgentDepthView {
+  if (mode === 'ask') return settings.askDepth;
+  if (mode === 'agent') return settings.actDepth;
+  return settings.planDepth;
+}
+
+function buildAgentSettingsPayload(settings: SettingsView, depthPatch: Partial<Pick<AgentSettingsPayload, 'askDepth' | 'planDepth' | 'actDepth'>> = {}): AgentSettingsPayload {
+  return {
+    subagentsEnabled: settings.subagentsEnabled,
+    maxSteps: settings.agentMaxSteps,
+    askDepth: settings.askDepth,
+    planDepth: settings.planDepth,
+    actDepth: settings.actDepth,
+    askMaxSteps: settings.askMaxSteps,
+    askAutoContinue: settings.askAutoContinue,
+    askMaxAutoContinues: settings.askMaxAutoContinues,
+    autoContinue: settings.agentAutoContinue,
+    maxAutoContinues: settings.agentMaxAutoContinues,
+    researchAgentMaxSteps: settings.researchAgentMaxSteps,
+    showDiffPreview: settings.showDiffPreview,
+    planModel: settings.planModel,
+    planBaseUrl: settings.planBaseUrl,
+    actModel: settings.actModel,
+    actBaseUrl: settings.actBaseUrl,
+    checkpointStrategy: settings.checkpointStrategy,
+    ...depthPatch,
+  };
+}
 
 export function App() {
   const { state, postMessage, pathSuggestions, pathSearchRequestId } = useVsCodeMessaging();
   const canRetry = state.messages.some((m) => m.role === 'user');
   const [contextWarningsDismissed, setContextWarningsDismissed] = useState(false);
+  const activeDepth = activeDepthForMode(state.settings, state.mode);
 
   useEffect(() => {
     setContextWarningsDismissed(false);
@@ -154,6 +186,7 @@ export function App() {
               loading={state.loading}
               mode={state.mode}
               approvalMode={state.settings.approvalMode}
+              activeDepth={activeDepth}
               tokenUsage={state.tokenUsage}
               pinnedContext={state.pinnedContext}
               canRetry={canRetry}
@@ -168,6 +201,18 @@ export function App() {
                   payload: deriveSafetySettings(approvalMode),
                 })
               }
+              onDepthChange={(depth) => {
+                const depthPatch =
+                  state.mode === 'ask'
+                    ? { askDepth: depth }
+                    : state.mode === 'agent'
+                      ? { actDepth: depth }
+                      : { planDepth: depth };
+                postMessage({
+                  type: 'saveAgentSettings',
+                  payload: buildAgentSettingsPayload(state.settings, depthPatch),
+                });
+              }}
               onRetry={() => postMessage({ type: 'retryLastMessage' })}
               onCopyResponse={() => postMessage({ type: 'copyLastResponse' })}
               onCopyChatHistory={() => postMessage({ type: 'copyChatHistoryMarkdown' })}
